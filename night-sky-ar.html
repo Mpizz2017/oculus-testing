@@ -74,7 +74,11 @@ input:checked+.slider:before{transform:translateX(16px)}
       <div class="ic"><div class="lb">Mode</div><div class="vl" id="mode-display">Detecting…</div></div>
     </div>
     <div id="status">Requesting location…</div>
-    <button id="enter-btn" disabled>Enter Dark Sky</button>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;width:100%">
+    <button id="enter-ar" disabled>Enter AR (Passthrough)</button>
+    <button id="enter-vr" disabled>Enter VR</button>
+    <button id="enter-desktop">Desktop Preview</button>
+  </div>
   </div>
 </div>
 
@@ -256,24 +260,60 @@ if(navigator.geolocation){
 }else checkXR();
 
 async function checkXR(){
-  if(navigator.xr){
-    try{
-      if(await navigator.xr.isSessionSupported('immersive-ar')){
-        document.getElementById('mode-display').textContent='AR (Quest)';
-        setS('AR mode ready');en(launchAR);return;
-      }
-      if(await navigator.xr.isSessionSupported('immersive-vr')){
-        document.getElementById('mode-display').textContent='VR headset';
-        setS('VR mode ready');en(launchVR);return;
-      }
-    }catch(e){}
+  const arBtn = document.getElementById('enter-ar');
+  const vrBtn = document.getElementById('enter-vr');
+  const deskBtn = document.getElementById('enter-desktop');
+
+  deskBtn.onclick = launchDesktop;
+
+  if (!navigator.xr){
+    document.getElementById('mode-display').textContent='No XR support';
+    setS('Running in desktop mode');
+    deskBtn.disabled = false;
+    return;
   }
-  document.getElementById('mode-display').textContent='Desktop preview';
-  setS('No XR device — desktop preview');
-  document.getElementById('enter-btn').textContent='Launch Desktop Preview';
-  en(launchDesktop);
+
+  try {
+    const arSupported = await navigator.xr.isSessionSupported('immersive-ar');
+    const vrSupported = await navigator.xr.isSessionSupported('immersive-vr');
+
+    if (arSupported){
+      arBtn.disabled = false;
+      arBtn.onclick = launchAR;
+    } else {
+      arBtn.textContent = "AR Not Supported";
+      arBtn.disabled = true;
+    }
+
+    if (vrSupported){
+      vrBtn.disabled = false;
+      vrBtn.onclick = launchVR;
+    } else {
+      vrBtn.textContent = "VR Not Supported";
+      vrBtn.disabled = true;
+    }
+
+    deskBtn.disabled = false;
+
+    // Update UI hint
+    if (vrSupported){
+      document.getElementById('mode-display').textContent='VR Ready';
+      setS('Choose a mode to begin');
+    } else if (arSupported){
+      document.getElementById('mode-display').textContent='AR Ready';
+      setS('Choose a mode to begin');
+    } else {
+      document.getElementById('mode-display').textContent='Desktop Only';
+      setS('XR not available');
+    }
+
+  } catch(e){
+    console.error(e);
+    setS('XR check failed');
+    deskBtn.disabled = false;
+  }
 }
-function en(fn){const b=document.getElementById('enter-btn');b.disabled=false;b.onclick=fn;}
+
 
 // ── Star texture ───────────────────────────────────────────────────────────
 function starTex(){
