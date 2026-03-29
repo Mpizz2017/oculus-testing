@@ -308,7 +308,7 @@ function buildStars(){
     const c=bvColor(isNaN(s.ci)?null:s.ci);
     // Brightness: magnitude scale — each step of 1 mag = ×2.512 in brightness
     // Clamp faint floor so dim stars are still faintly visible
-    const br=Math.max(0.08, Math.pow(10,-0.4*(s.mag-(-1.5)))*0.9);
+    const br=Math.max(0.18, Math.pow(10,-0.4*(s.mag-(-1.5)))*0.9);
     // Saturation boost so blue/red stars show real hue
     const mean=(c.r+c.g+c.b)/3;
     const sat=1.6;
@@ -316,8 +316,8 @@ function buildStars(){
     const g=Math.max(0,Math.min(1,mean+(c.g-mean)*sat));
     const b=Math.max(0,Math.min(1,mean+(c.b-mean)*sat));
     col.push(r*br,g*br,b*br);
-    // Point size: bright stars larger, dim stars minimum 1.5px
-    const sz_val=s.mag<0?24:Math.max(1.5,14-s.mag*1.8);
+    // Point size: bright stars get halos, dim stars minimum 2.5px (VR will multiply further)
+    const sz_val=s.mag<0?26:Math.max(2.5,15-s.mag*1.8);
     sz.push(sz_val);
     starData.push({...s,alt,az});
   }
@@ -326,27 +326,30 @@ function buildStars(){
   geo.setAttribute('starColor',new THREE.Float32BufferAttribute(col,3));
   geo.setAttribute('aSize',new THREE.Float32BufferAttribute(sz,1));
   starPts=new THREE.Points(geo,new THREE.ShaderMaterial({
-    uniforms:{tex:{value:starTex()}},
-    // NOTE: 'color' and 'size' are reserved names that Three.js may inject.
-    // Using 'starColor'/'aSize' avoids the duplicate-declaration compile error.
+    uniforms:{
+      tex:       {value:starTex()},
+      uSizeMult: {value:1.0},  // boosted in VR — XR framebuffer pixels are much smaller
+      uBright:   {value:1.0},  // boosted in VR — headset optics attenuate perceived brightness
+    },
     vertexShader:`
+      uniform float uSizeMult;
       attribute float aSize;
       attribute vec3  starColor;
       varying   vec3  vC;
       void main(){
         vC = starColor;
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        // 500.0 matches the star sphere radius so 1 unit = 1 px at the surface
-        gl_PointSize = aSize * (500.0 / -mv.z);
+        gl_PointSize = aSize * (500.0 / -mv.z) * uSizeMult;
         gl_Position  = projectionMatrix * mv;
       }`,
     fragmentShader:`
       uniform sampler2D tex;
+      uniform float     uBright;
       varying vec3 vC;
       void main(){
         vec4 t = texture2D(tex, gl_PointCoord);
         if(t.a < 0.01) discard;
-        gl_FragColor = vec4(vC, 1.0) * t;
+        gl_FragColor = vec4(vC * uBright, 1.0) * t;
       }`,
     blending:THREE.AdditiveBlending,depthTest:false,transparent:true
   }));
@@ -467,11 +470,7 @@ async function checkXR(){
 
 // Kick off HYG fetch as soon as page loads — runs in background while user reads UI
 fetchHYG().then(ok=>{
-  if(!ok){
-    setS('Place hygdata_v41.csv next to this HTML file, or drop it below ↓');
-    // Still enable desktop button so user isn't stuck
-    document.getElementById('enter-desktop').disabled=false;
-  }
+  if(!ok) setS('Catalog not loaded — use the file loader below or try a different network');
 });
 
 // ── Star texture ───────────────────────────────────────────────────────────
@@ -494,12 +493,7 @@ function build(){
   );
   skyGroup.add(bgSphere);
   camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.01,2000);
-  if(hygCatalog&&hygCatalog.length>0){
-    buildStars();
-  } else {
-    console.warn('HYG catalog not loaded — star field will be empty');
-  }
-  buildCons();
+  buildStars();buildCons();
 }
 
 // Old procedural buildStars/buildMW removed — replaced by HYG loader above
@@ -586,12 +580,9 @@ function hideCard(){document.getElementById('info-card').style.display='none';}
 document.getElementById('ic-close').addEventListener('click',hideCard);
 
 // ── Raycasting ─────────────────────────────────────────────────────────────
-const RC=new THREE.Raycaster();
+const RC=new THREE.Raycaster();RC.params.Points={threshold:4};
 function pick(cx,cy){
   if(!F.identify||!starPts)return;
-  // Threshold scales inversely with skyGroup scale (zoom)
-  const sc=skyGroup?skyGroup.scale.x:1;
-  RC.params.Points={threshold: 6/sc};
   const m=new THREE.Vector2((cx/innerWidth)*2-1,-(cy/innerHeight)*2+1);
   RC.setFromCamera(m,camera);
   const h=RC.intersectObject(starPts);
@@ -602,6 +593,10 @@ function pick(cx,cy){
 // ── AR / VR ────────────────────────────────────────────────────────────────
 async function launchAR(){
   build();
+  if(starPts){
+    starPts.material.uniforms.uSizeMult.value = 6.5;  // Quest 3S AR: still high-res XR framebuffer
+    starPts.material.uniforms.uBright.value   = 3.0;  // need extra punch to show over passthrough
+  }
   renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
   renderer.setPixelRatio(devicePixelRatio);renderer.setSize(innerWidth,innerHeight);
   renderer.xr.enabled=true;document.body.appendChild(renderer.domElement);
@@ -613,6 +608,17 @@ async function launchAR(){
 }
 async function launchVR(){
   build();
+
+  // ── Quest 3S VR visibility boost ──────────────────────────────────────────
+  // Quest 3S: 2064×2208 per eye (vs Quest 2's 1832×1920).
+  // gl_PointSize is in XR framebuffer pixels — at this res a "3px" desktop star
+  // is a sub-pixel speck. Multiply size to compensate.
+  // Pancake lenses transmit light better than Fresnel, so uBright is moderate.
+  if(starPts){
+    starPts.material.uniforms.uSizeMult.value = 7.0;   // ~2064/300 ratio to desktop
+    starPts.material.uniforms.uBright.value   = 2.2;   // pancake = less attenuation than Fresnel
+  }
+
   renderer=new THREE.WebGLRenderer({antialias:true});
   renderer.setPixelRatio(devicePixelRatio);renderer.setSize(innerWidth,innerHeight);
   renderer.xr.enabled=true;document.body.appendChild(renderer.domElement);
