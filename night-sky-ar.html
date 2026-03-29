@@ -323,16 +323,32 @@ function buildStars(){
   }
   const geo=new THREE.BufferGeometry();
   geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
-  geo.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
-  geo.setAttribute('size',new THREE.Float32BufferAttribute(sz,1));
+  geo.setAttribute('starColor',new THREE.Float32BufferAttribute(col,3));
+  geo.setAttribute('aSize',new THREE.Float32BufferAttribute(sz,1));
   starPts=new THREE.Points(geo,new THREE.ShaderMaterial({
     uniforms:{tex:{value:starTex()}},
-    vertexShader:`attribute float size;attribute vec3 color;varying vec3 vC;
-      void main(){vC=color;vec4 mv=modelViewMatrix*vec4(position,1.0);
-      gl_PointSize=size*(500.0/-mv.z);gl_Position=projectionMatrix*mv;}`,
-    fragmentShader:`uniform sampler2D tex;varying vec3 vC;
-      void main(){vec4 t=texture2D(tex,gl_PointCoord);if(t.a<.01)discard;gl_FragColor=vec4(vC,1.)*t;}`,
-    blending:THREE.AdditiveBlending,depthTest:false,transparent:true,vertexColors:true
+    // NOTE: 'color' and 'size' are reserved names that Three.js may inject.
+    // Using 'starColor'/'aSize' avoids the duplicate-declaration compile error.
+    vertexShader:`
+      attribute float aSize;
+      attribute vec3  starColor;
+      varying   vec3  vC;
+      void main(){
+        vC = starColor;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        // 500.0 matches the star sphere radius so 1 unit = 1 px at the surface
+        gl_PointSize = aSize * (500.0 / -mv.z);
+        gl_Position  = projectionMatrix * mv;
+      }`,
+    fragmentShader:`
+      uniform sampler2D tex;
+      varying vec3 vC;
+      void main(){
+        vec4 t = texture2D(tex, gl_PointCoord);
+        if(t.a < 0.01) discard;
+        gl_FragColor = vec4(vC, 1.0) * t;
+      }`,
+    blending:THREE.AdditiveBlending,depthTest:false,transparent:true
   }));
   skyGroup.add(starPts);
 }
@@ -451,7 +467,11 @@ async function checkXR(){
 
 // Kick off HYG fetch as soon as page loads — runs in background while user reads UI
 fetchHYG().then(ok=>{
-  if(!ok) setS('Catalog not loaded — use the file loader below or try a different network');
+  if(!ok){
+    setS('Place hygdata_v41.csv next to this HTML file, or drop it below ↓');
+    // Still enable desktop button so user isn't stuck
+    document.getElementById('enter-desktop').disabled=false;
+  }
 });
 
 // ── Star texture ───────────────────────────────────────────────────────────
@@ -474,7 +494,12 @@ function build(){
   );
   skyGroup.add(bgSphere);
   camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.01,2000);
-  buildStars();buildCons();
+  if(hygCatalog&&hygCatalog.length>0){
+    buildStars();
+  } else {
+    console.warn('HYG catalog not loaded — star field will be empty');
+  }
+  buildCons();
 }
 
 // Old procedural buildStars/buildMW removed — replaced by HYG loader above
@@ -561,9 +586,12 @@ function hideCard(){document.getElementById('info-card').style.display='none';}
 document.getElementById('ic-close').addEventListener('click',hideCard);
 
 // ── Raycasting ─────────────────────────────────────────────────────────────
-const RC=new THREE.Raycaster();RC.params.Points={threshold:4};
+const RC=new THREE.Raycaster();
 function pick(cx,cy){
   if(!F.identify||!starPts)return;
+  // Threshold scales inversely with skyGroup scale (zoom)
+  const sc=skyGroup?skyGroup.scale.x:1;
+  RC.params.Points={threshold: 6/sc};
   const m=new THREE.Vector2((cx/innerWidth)*2-1,-(cy/innerHeight)*2+1);
   RC.setFromCamera(m,camera);
   const h=RC.intersectObject(starPts);
