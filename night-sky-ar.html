@@ -111,12 +111,17 @@ input:checked+.slider:before{transform:translateX(16px)}
     <label class="toggle"><input type="checkbox" id="t-stars" checked><span class="slider"></span></label>
   </div>
   <div class="feat-row">
-    <div><div class="feat-label">Constellation lines</div><div class="feat-sub">IAU boundary lines</div></div>
+    <div><div class="feat-label">Constellation lines</div><div class="feat-sub">IAU stick figures</div></div>
     <label class="toggle"><input type="checkbox" id="t-const" checked><span class="slider"></span></label>
   </div>
   <div class="feat-row">
     <div><div class="feat-label">Constellation names</div><div class="feat-sub">Labels on the sky</div></div>
     <label class="toggle"><input type="checkbox" id="t-cnames" checked><span class="slider"></span></label>
+  </div>
+  <div class="feat-sep"></div>
+  <div class="feat-row">
+    <div><div class="feat-label">Galactic equator</div><div class="feat-sub">Milky Way plane reference line</div></div>
+    <label class="toggle"><input type="checkbox" id="t-galeq" checked><span class="slider"></span></label>
   </div>
   <div class="feat-sep"></div>
   <div class="feat-row">
@@ -311,7 +316,7 @@ function buildStars(){
     const br=Math.max(0.18, Math.pow(10,-0.4*(s.mag-(-1.5)))*0.9);
     // Saturation boost so blue/red stars show real hue
     const mean=(c.r+c.g+c.b)/3;
-    const sat=1.6;
+    const sat=1.15; // subtle — real stars look nearly white except the brightest
     const r=Math.max(0,Math.min(1,mean+(c.r-mean)*sat));
     const g=Math.max(0,Math.min(1,mean+(c.g-mean)*sat));
     const b=Math.max(0,Math.min(1,mean+(c.b-mean)*sat));
@@ -358,40 +363,229 @@ function buildStars(){
 
 
 // ── Constellations ─────────────────────────────────────────────────────────
+// All coordinates are [RA°, Dec°] with accurate Hipparcos positions
 const CONS={
-  Orion:{s:[[[88.79,7.41],[86.94,7.41]],[[86.94,7.41],[84.05,-1.2]],[[84.05,-1.2],[84.41,-1.94]],[[84.41,-1.94],[85.19,-1.94]],[[85.19,-1.94],[78.63,-8.2]],[[88.79,7.41],[83.0,-6.0]],[[83.0,-6.0],[78.63,-8.2]]],lr:83,ld:4},
-  'Ursa Major':{s:[[[165.9,61.75],[183.9,57.03]],[[183.9,57.03],[193.5,55.96]],[[193.5,55.96],[201.0,54.93]],[[201.0,54.93],[206.9,49.31]],[[193.5,55.96],[185.0,53.7]],[[185.0,53.7],[177.0,56.4]]],lr:185,ld:60},
-  Cassiopeia:{s:[[[2.3,59.15],[10.1,56.54]],[[10.1,56.54],[14.2,60.72]],[[14.2,60.72],[21.5,60.24]],[[21.5,60.24],[28.6,63.67]]],lr:14,ld:65},
-  Leo:{s:[[[152.1,11.97],[155.0,19.84]],[[155.0,19.84],[168.5,15.43]],[[168.5,15.43],[177.3,14.57]],[[152.1,11.97],[148.2,26.38]],[[148.2,26.38],[155.0,19.84]]],lr:160,ld:14},
-  Scorpius:{s:[[[247.4,-26.43],[241.4,-19.81]],[[241.4,-19.81],[239.7,-15.4]],[[247.4,-26.43],[253.1,-37.1]],[[253.1,-37.1],[256.0,-40.1]],[[256.0,-40.1],[263.4,-37.0]],[[263.4,-37.0],[264.3,-43.0]]],lr:247,ld:-22},
-  Cygnus:{s:[[[310.4,45.28],[305.6,40.26]],[[305.6,40.26],[299.1,35.08]],[[299.1,35.08],[292.7,27.96]],[[305.6,40.26],[309.4,47.7]],[[305.6,40.26],[301.2,44.3]]],lr:308,ld:50},
-  Lyra:{s:[[[279.2,38.78],[282.5,32.69]],[[282.5,32.69],[283.6,36.9]],[[283.6,36.9],[284.7,32.69]],[[284.7,32.69],[282.5,32.69]]],lr:280,ld:41},
-  Aquila:{s:[[[297.7,8.87],[296.6,13.86]],[[296.6,13.86],[298.8,6.4]],[[298.8,6.4],[297.7,8.87]],[[297.7,8.87],[295.0,2.72]]],lr:299,ld:12},
-  Gemini:{s:[[[116.3,28.03],[112.5,22.51]],[[113.7,31.89],[111.8,28.03]],[[112.5,22.51],[106.0,22.51]],[[116.3,28.03],[113.7,31.89]]],lr:113,ld:29},
-  Taurus:{s:[[[69.0,16.51],[65.0,17.54]],[[65.0,17.54],[56.9,24.1]],[[69.0,16.51],[72.5,5.61]],[[69.0,16.51],[71.3,19.18]],[[71.3,19.18],[74.3,15.96]]],lr:67,ld:23},
-  Virgo:{s:[[[201.3,-11.16],[195.5,-6.0]],[[195.5,-6.0],[193.9,3.4]],[[201.3,-11.16],[205.0,-6.0]],[[205.0,-6.0],[214.0,-6.4]]],lr:200,ld:-4},
-  'Canis Major':{s:[[[101.3,-16.72],[104.7,-28.97]],[[104.7,-28.97],[105.4,-26.4]],[[101.3,-16.72],[98.0,-18.0]]],lr:102,ld:-12},
-  Perseus:{s:[[[51.1,49.86],[46.7,48.4]],[[46.7,48.4],[42.7,47.04]],[[51.1,49.86],[56.1,47.71]],[[56.1,47.71],[59.7,40.96]]],lr:50,ld:50},
-  Auriga:{s:[[[79.2,45.98],[74.3,44.95]],[[74.3,44.95],[71.0,37.21]],[[71.0,37.21],[80.0,37.89]],[[80.0,37.89],[89.9,44.95]],[[89.9,44.95],[79.2,45.98]]],lr:80,ld:44},
-  'Boötes':{s:[[[213.9,19.18],[209.6,18.4]],[[209.6,18.4],[207.4,13.18]],[[207.4,13.18],[211.0,7.9]],[[213.9,19.18],[218.0,18.4]],[[218.0,18.4],[218.0,13.0]]],lr:214,ld:24},
-  Sagittarius:{s:[[[283.8,-26.3],[276.0,-29.8]],[[276.0,-29.8],[274.4,-36.8]],[[274.4,-36.8],[279.2,-34.4]],[[279.2,-34.4],[283.8,-26.3]],[[283.8,-26.3],[286.2,-21.1]]],lr:280,ld:-26},
-  Andromeda:{s:[[[2.1,29.09],[17.4,35.62]],[[17.4,35.62],[24.4,57.82]],[[17.4,35.62],[10.7,41.07]]],lr:14,ld:43},
-  Pegasus:{s:[[[346.2,15.21],[2.1,29.09]],[[2.1,29.09],[345.0,28.1]],[[345.0,28.1],[328.0,15.2]],[[328.0,15.2],[346.2,15.21]]],lr:337,ld:22},
-  'Ursa Minor':{s:[[[37.95,89.26],[230.2,77.79]],[[230.2,77.79],[222.7,74.16]],[[222.7,74.16],[245.0,71.83]],[[245.0,71.83],[252.2,69.33]]],lr:230,ld:82},
-  Aquarius:{s:[[[322.9,-9.49],[318.4,-13.59]],[[318.4,-13.59],[309.2,-11.37]],[[309.2,-11.37],[306.3,-18.88]],[[306.3,-18.88],[311.0,-24.0]]],lr:315,ld:-9},
+  // ── Orion — full figure with bow/shield ───────────────────────────────────
+  Orion:{s:[
+    // Head → shoulders
+    [[83.79,9.93],[88.79,7.41]],   // Meissa → Betelgeuse (right shoulder)
+    [[83.79,9.93],[81.28,6.35]],   // Meissa → Bellatrix (left shoulder)
+    // Shoulders → belt
+    [[88.79,7.41],[84.05,-1.20]],  // Betelgeuse → Alnilam
+    [[81.28,6.35],[83.00,-0.30]],  // Bellatrix → Mintaka
+    // Belt (W→E): Mintaka – Alnilam – Alnitak
+    [[83.00,-0.30],[84.05,-1.20]],
+    [[84.05,-1.20],[85.19,-1.94]],
+    // Belt → feet
+    [[85.19,-1.94],[86.94,-9.67]], // Alnitak → Saiph (right foot)
+    [[83.00,-0.30],[78.63,-8.20]], // Mintaka → Rigel (left foot)
+    // Bow / shield (arc of π stars west of Bellatrix, N→S)
+    [[81.28,6.35],[73.56,10.15]], // Bellatrix → π¹
+    [[73.56,10.15],[72.65,8.90]], // π¹ → π²
+    [[72.65,8.90],[72.46,6.97]],  // π² → π³
+    [[72.46,6.97],[72.80,5.60]],  // π³ → π⁴
+    [[72.80,5.60],[73.56,2.44]],  // π⁴ → π⁵
+    [[73.56,2.44],[73.72,-10.14]],// π⁵ → π⁶ (foot of shield)
+  ],lr:84,ld:1},
+
+  // ── Ursa Major — Big Dipper (complete bowl) ───────────────────────────────
+  'Ursa Major':{s:[
+    // Bowl
+    [[165.93,61.75],[165.46,56.38]], // Dubhe → Merak
+    [[165.46,56.38],[178.46,53.69]], // Merak → Phecda
+    [[178.46,53.69],[183.86,57.03]], // Phecda → Megrez
+    [[183.86,57.03],[165.93,61.75]], // Megrez → Dubhe (close bowl)
+    // Handle
+    [[183.86,57.03],[193.51,55.96]], // Megrez → Alioth
+    [[193.51,55.96],[200.98,54.93]], // Alioth → Mizar
+    [[200.98,54.93],[206.89,49.31]], // Mizar → Alkaid
+  ],lr:185,ld:57},
+
+  // ── Ursa Minor — Little Dipper ────────────────────────────────────────────
+  'Ursa Minor':{s:[
+    // Handle: Polaris → δ → ε → ζ
+    [[37.95,89.26],[263.05,86.59]],
+    [[263.05,86.59],[251.49,82.04]],
+    [[251.49,82.04],[236.02,77.79]],
+    // Bowl: ζ → Kochab → Pherkad → η → back to ζ
+    [[236.02,77.79],[222.68,74.16]], // ζ → Kochab
+    [[222.68,74.16],[230.18,71.83]], // Kochab → Pherkad
+    [[230.18,71.83],[244.38,75.76]], // Pherkad → η
+    [[244.38,75.76],[236.02,77.79]], // η → ζ (close bowl)
+  ],lr:210,ld:82},
+
+  // ── Cassiopeia — W shape ──────────────────────────────────────────────────
+  Cassiopeia:{s:[
+    [[2.29,59.15],[10.13,56.54]],
+    [[10.13,56.54],[14.18,60.72]],
+    [[14.18,60.72],[21.45,60.24]],
+    [[21.45,60.24],[28.60,63.67]],
+  ],lr:14,ld:65},
+
+  // ── Leo ───────────────────────────────────────────────────────────────────
+  Leo:{s:[
+    // Sickle / head
+    [[152.09,11.97],[154.99,19.84]], // Regulus → Algieba
+    [[154.99,19.84],[155.58,16.76]], // Algieba → η Leo
+    [[155.58,16.76],[152.09,11.97]], // η → Regulus (close sickle)
+    [[154.99,19.84],[148.19,26.38]], // Algieba → μ Leo (back of head)
+    // Body
+    [[154.99,19.84],[177.27,14.57]], // Algieba → Denebola (body/tail)
+  ],lr:162,ld:18},
+
+  // ── Scorpius — curving tail ───────────────────────────────────────────────
+  Scorpius:{s:[
+    [[241.36,-19.81],[240.08,-22.62]], // β → δ (head)
+    [[240.08,-22.62],[247.35,-26.43]], // δ → Antares
+    [[247.35,-26.43],[252.54,-34.29]], // Antares → ε
+    [[252.54,-34.29],[253.08,-37.10]], // ε → μ
+    [[253.08,-37.10],[255.98,-38.04]], // μ → ζ¹
+    [[255.98,-38.04],[258.04,-43.00]], // ζ¹ → η
+    [[258.04,-43.00],[264.33,-43.00]], // η → θ
+    [[264.33,-43.00],[265.62,-39.02]], // θ → κ
+    [[265.62,-39.02],[263.40,-37.10]], // κ → λ (Shaula)
+    [[263.40,-37.10],[264.31,-37.30]], // λ → υ (Lesath)
+  ],lr:249,ld:-30},
+
+  // ── Cygnus — Northern Cross ───────────────────────────────────────────────
+  Cygnus:{s:[
+    [[310.36,45.28],[305.56,40.26]], // Deneb → Sadr (top → center)
+    [[305.56,40.26],[292.68,27.96]], // Sadr → Albireo (center → bottom)
+    [[296.24,45.13],[305.56,40.26]], // δ Cyg → Sadr (left arm)
+    [[305.56,40.26],[311.55,33.97]], // Sadr → ε Cyg (right arm)
+  ],lr:305,ld:47},
+
+  // ── Lyra ─────────────────────────────────────────────────────────────────
+  Lyra:{s:[
+    [[279.23,38.78],[283.62,36.90]], // Vega → β Lyr
+    [[279.23,38.78],[284.73,32.69]], // Vega → γ Lyr
+    [[283.62,36.90],[282.52,32.69]], // β → ζ
+    [[282.52,32.69],[284.73,32.69]], // ζ → γ (close parallelogram)
+    [[284.73,32.69],[283.62,36.90]], // γ → β
+  ],lr:280,ld:41},
+
+  // ── Aquila ───────────────────────────────────────────────────────────────
+  Aquila:{s:[
+    [[297.70,8.87],[296.60,13.86]],
+    [[296.60,13.86],[298.80,6.40]],
+    [[298.80,6.40],[297.70,8.87]],
+    [[297.70,8.87],[295.02,2.72]],
+  ],lr:299,ld:12},
+
+  // ── Gemini ────────────────────────────────────────────────────────────────
+  Gemini:{s:[
+    [[113.65,31.89],[116.33,28.03]], // Castor → Pollux (twins' heads)
+    [[113.65,31.89],[111.79,28.03]], // Castor line down
+    [[111.79,28.03],[106.03,22.51]],
+    [[116.33,28.03],[112.48,22.51]], // Pollux line down
+    [[112.48,22.51],[106.03,22.51]], // feet connected
+  ],lr:113,ld:29},
+
+  // ── Taurus ───────────────────────────────────────────────────────────────
+  Taurus:{s:[
+    [[68.98,16.51],[65.73,17.54]],   // Aldebaran → θ¹ Tau (Hyades V-tip)
+    [[65.73,17.54],[56.87,24.11]],   // Hyades toward Pleiades direction
+    [[68.98,16.51],[72.46,5.61]],    // Aldebaran → El Nath direction
+    [[68.98,16.51],[71.30,19.18]],
+    [[71.30,19.18],[74.30,15.96]],
+  ],lr:67,ld:23},
+
+  // ── Virgo ─────────────────────────────────────────────────────────────────
+  Virgo:{s:[
+    [[201.30,-11.16],[193.90,3.39]],
+    [[193.90,3.39],[193.51,10.96]],
+    [[201.30,-11.16],[204.97,-6.00]],
+    [[204.97,-6.00],[214.00,-6.42]],
+  ],lr:200,ld:-4},
+
+  // ── Canis Major ───────────────────────────────────────────────────────────
+  'Canis Major':{s:[
+    [[101.29,-16.72],[104.66,-28.97]],
+    [[104.66,-28.97],[105.43,-26.39]],
+    [[101.29,-16.72],[98.96,-16.71]],
+    [[101.29,-16.72],[100.00,-23.83]],
+    [[100.00,-23.83],[104.66,-28.97]],
+  ],lr:102,ld:-15},
+
+  // ── Perseus ───────────────────────────────────────────────────────────────
+  Perseus:{s:[
+    [[51.08,49.86],[46.69,48.41]],
+    [[46.69,48.41],[42.67,47.04]],
+    [[51.08,49.86],[56.13,47.71]],
+    [[56.13,47.71],[59.74,40.96]],
+  ],lr:50,ld:50},
+
+  // ── Auriga ────────────────────────────────────────────────────────────────
+  Auriga:{s:[
+    [[79.17,45.98],[74.25,44.95]],
+    [[74.25,44.95],[71.00,37.21]],
+    [[71.00,37.21],[79.89,37.89]],
+    [[79.89,37.89],[89.93,44.95]],
+    [[89.93,44.95],[79.17,45.98]],
+  ],lr:80,ld:44},
+
+  // ── Boötes ────────────────────────────────────────────────────────────────
+  'Boötes':{s:[
+    [[213.92,19.18],[209.56,18.40]],
+    [[209.56,18.40],[207.36,13.18]],
+    [[207.36,13.18],[210.96,7.90]],
+    [[213.92,19.18],[218.02,18.40]],
+    [[218.02,18.40],[218.02,13.00]],
+  ],lr:214,ld:24},
+
+  // ── Sagittarius — teapot ──────────────────────────────────────────────────
+  Sagittarius:{s:[
+    // Lid
+    [[286.17,-21.11],[281.19,-22.74]],
+    [[281.19,-22.74],[283.82,-26.30]],
+    [[283.82,-26.30],[286.17,-21.11]],
+    // Spout (west side)
+    [[283.82,-26.30],[276.04,-29.83]],
+    [[276.04,-29.83],[274.41,-36.76]],
+    // Base
+    [[283.82,-26.30],[279.23,-34.38]],
+    [[279.23,-34.38],[274.41,-36.76]],
+    // Handle (east side)
+    [[286.17,-21.11],[289.40,-26.30]],
+    [[289.40,-26.30],[283.82,-26.30]],
+  ],lr:281,ld:-26},
+
+  // ── Andromeda ─────────────────────────────────────────────────────────────
+  Andromeda:{s:[
+    [[2.06,29.09],[17.43,35.62]],
+    [[17.43,35.62],[24.43,57.82]],
+    [[17.43,35.62],[10.68,41.07]],
+  ],lr:14,ld:43},
+
+  // ── Pegasus — Great Square ────────────────────────────────────────────────
+  Pegasus:{s:[
+    [[346.19,15.18],[345.94,28.08]], // Markab → Scheat
+    [[345.94,28.08],[2.06,29.09]],   // Scheat → Alpheratz (shared w/ Andromeda)
+    [[2.06,29.09],[3.31,15.18]],     // Alpheratz → Algenib
+    [[3.31,15.18],[346.19,15.18]],   // Algenib → Markab (close square)
+    [[346.19,15.18],[326.05,9.87]],  // Markab → Enif (horse's nose)
+  ],lr:337,ld:22},
+
+  // ── Aquarius ──────────────────────────────────────────────────────────────
+  Aquarius:{s:[
+    [[322.90,-9.49],[318.39,-13.59]],
+    [[318.39,-13.59],[309.22,-11.37]],
+    [[309.22,-11.37],[306.28,-18.88]],
+    [[306.28,-18.88],[311.03,-24.00]],
+  ],lr:315,ld:-9},
 };
 
 // ── State ──────────────────────────────────────────────────────────────────
 let uLat=38.9897,uLon=-76.9378;
 let jdNow=jd(new Date());
 let scene,camera,renderer,skyGroup;
-let starPts,cLines=[],cLabels=[];
+let starPts,cLines=[],cLabels=[],galEqLine=null,sgrAMarker=null;
 let starData=[];
 let desktop=false;
 let phi=Math.PI/2,theta=0,fov=70;
 let dragging=false,moved=false,pm={x:0,y:0};
 let panelOpen=false;
-const F={stars:true,const:true,cnames:true,identify:true};
+const F={stars:true,const:true,cnames:true,identify:true,galeq:true};
 
 // ── Clock ──────────────────────────────────────────────────────────────────
 function tick(){
@@ -493,7 +687,7 @@ function build(){
   );
   skyGroup.add(bgSphere);
   camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.01,2000);
-  buildStars();buildCons();
+  buildStars();buildCons();buildGalacticEquator();buildSgrA();
 }
 
 // Old procedural buildStars/buildMW removed — replaced by HYG loader above
@@ -534,13 +728,85 @@ function makeLabel(text){
   sp.scale.set(42,8,1);return sp;
 }
 
-// ── Toggles ────────────────────────────────────────────────────────────────
+// ── Galactic equator (b=0 great circle) ──────────────────────────────────────
+// NGP / reference constants for galactic→equatorial conversion
+const _NGPra=192.85948*Math.PI/180,_NGPdec=27.12825*Math.PI/180,_lon0=122.93192*Math.PI/180;
+function galToEq(l,b){
+  const lR=l*Math.PI/180,bR=b*Math.PI/180;
+  const sinD=Math.sin(bR)*Math.sin(_NGPdec)+Math.cos(bR)*Math.cos(_NGPdec)*Math.cos(_lon0-lR);
+  const dec=Math.asin(Math.max(-1,Math.min(1,sinD)))*180/Math.PI;
+  const y2=Math.cos(bR)*Math.sin(_lon0-lR);
+  const x2=Math.sin(bR)*Math.cos(_NGPdec)-Math.cos(bR)*Math.sin(_NGPdec)*Math.cos(_lon0-lR);
+  const ra=((_NGPra+Math.atan2(y2,x2))*180/Math.PI%360+360)%360;
+  return{ra,dec};
+}
+function buildGalacticEquator(){
+  if(galEqLine){skyGroup.remove(galEqLine);galEqLine=null;}
+  const N=360,pts=[];
+  for(let i=0;i<=N;i++){
+    const{ra,dec}=galToEq(i%360,0);
+    const{alt,az}=toAltAz(ra,dec,uLat,uLon,jdNow);
+    const v=toVec(alt,az,486);
+    pts.push(v.x,v.y,v.z);
+  }
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(pts,3));
+  galEqLine=new THREE.Line(geo,new THREE.LineBasicMaterial({
+    color:0x44aaff,transparent:true,opacity:.35,depthTest:false
+  }));
+  skyGroup.add(galEqLine);
+}
+
+// ── Sagittarius A* marker ──────────────────────────────────────────────────
+function buildSgrA(){
+  if(sgrAMarker){skyGroup.remove(sgrAMarker);sgrAMarker=null;}
+  // Galactic center: RA=266.417°, Dec=-29.008°
+  const{alt,az}=toAltAz(266.417,-29.008,uLat,uLon,jdNow);
+  // Glowing cross sprite
+  const c=document.createElement('canvas');c.width=c.height=128;
+  const x=c.getContext('2d');
+  // Outer glow
+  const g=x.createRadialGradient(64,64,0,64,64,56);
+  g.addColorStop(0,'rgba(255,200,80,.9)');g.addColorStop(.35,'rgba(255,140,30,.5)');
+  g.addColorStop(1,'rgba(255,100,0,0)');
+  x.fillStyle=g;x.beginPath();x.arc(64,64,56,0,Math.PI*2);x.fill();
+  // Cross lines
+  x.strokeStyle='rgba(255,220,120,.95)';x.lineWidth=2.5;
+  x.beginPath();x.moveTo(64,18);x.lineTo(64,110);x.moveTo(18,64);x.lineTo(110,64);x.stroke();
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({
+    map:new THREE.CanvasTexture(c),transparent:true,depthTest:false,blending:THREE.AdditiveBlending
+  }));
+  sp.position.copy(toVec(alt,az,487));
+  sp.scale.set(14,14,1);
+
+  // Label
+  const lc=document.createElement('canvas');lc.width=420;lc.height=80;
+  const lx=lc.getContext('2d');
+  lx.font='bold 28px system-ui,sans-serif';
+  lx.fillStyle='rgba(255,180,60,.9)';
+  lx.textAlign='center';lx.textBaseline='middle';
+  lx.fillText('SGR A* · GALACTIC CENTER',210,40);
+  const ls=new THREE.Sprite(new THREE.SpriteMaterial({
+    map:new THREE.CanvasTexture(lc),transparent:true,depthTest:false,blending:THREE.AdditiveBlending
+  }));
+  ls.position.copy(toVec(alt,az+1.5,488));
+  ls.scale.set(38,7,1);
+
+  // Group both as one object for easy remove/show
+  sgrAMarker=new THREE.Group();
+  sgrAMarker.add(sp);sgrAMarker.add(ls);
+  skyGroup.add(sgrAMarker);
+}
+
+
 function applyF(){
   if(starPts)starPts.visible=F.stars;
   cLines.forEach(l=>l.visible=F.const);
   cLabels.forEach(l=>l.visible=F.const&&F.cnames);
+  if(galEqLine)galEqLine.visible=F.galeq;
+  if(sgrAMarker)sgrAMarker.visible=F.galeq;
 }
-[['t-stars','stars'],['t-const','const'],['t-cnames','cnames'],['t-identify','identify']].forEach(([id,key])=>{
+[['t-stars','stars'],['t-const','const'],['t-cnames','cnames'],['t-identify','identify'],['t-galeq','galeq']].forEach(([id,key])=>{
   document.getElementById(id).addEventListener('change',e=>{
     F[key]=e.target.checked;applyF();
     if(key==='identify'&&!F.identify)hideCard();
