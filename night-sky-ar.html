@@ -58,6 +58,10 @@ input:checked+.slider:before{transform:translateX(16px)}
 #crosshair::before{width:1px;height:100%;left:50%}
 #crosshair::after{height:1px;width:100%;top:50%}
 .ch-ring{position:absolute;inset:5px;border:1px solid rgba(180,170,255,.25);border-radius:50%}
+#load-bar-wrap{width:100%;max-width:340px;display:none;flex-direction:column;gap:8px;align-items:center}
+#load-bar-bg{width:100%;height:4px;background:rgba(255,255,255,.08);border-radius:4px;overflow:hidden}
+#load-bar{height:100%;width:0%;background:linear-gradient(90deg,#4433bb,#7766ff);border-radius:4px;transition:width .25s ease}
+#load-label{font-size:.78rem;color:#5555aa}
 </style>
 </head>
 <body>
@@ -74,6 +78,10 @@ input:checked+.slider:before{transform:translateX(16px)}
       <div class="ic"><div class="lb">Mode</div><div class="vl" id="mode-display">Detecting…</div></div>
     </div>
     <div id="status">Requesting location…</div>
+    <div id="load-bar-wrap">
+      <div id="load-bar-bg"><div id="load-bar"></div></div>
+      <div id="load-label">Loading star catalog…</div>
+    </div>
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;width:100%">
     <button id="enter-ar" disabled>Enter AR (Passthrough)</button>
     <button id="enter-vr" disabled>Enter VR</button>
@@ -162,49 +170,176 @@ function toVec(alt,az,r=500){
   return new THREE.Vector3(Math.cos(aR)*Math.sin(zR)*r,Math.sin(aR)*r,-Math.cos(aR)*Math.cos(zR)*r);
 }
 function bvColor(bv){
-  if(bv<-.3)return new THREE.Color(.72,.82,1);
-  if(bv<0)return new THREE.Color(.82,.9,1);
-  if(bv<.3)return new THREE.Color(1,1,1);
-  if(bv<.6)return new THREE.Color(1,1,.85);
-  if(bv<1)return new THREE.Color(1,.9,.6);
-  if(bv<1.5)return new THREE.Color(1,.7,.4);
-  return new THREE.Color(1,.5,.3);
+  // Perceptually accurate spectral colors for additive blending
+  if(isNaN(bv)||bv===null)return new THREE.Color(.95,.95,1.0); // unknown → white
+  if(bv<-.3) return new THREE.Color(.55,.72,1.00); // O — hot blue
+  if(bv<-.1) return new THREE.Color(.70,.84,1.00); // B — blue-white
+  if(bv< .1) return new THREE.Color(.92,.95,1.00); // A — white
+  if(bv< .3) return new THREE.Color(1.00,1.00,.88); // F — yellow-white
+  if(bv< .6) return new THREE.Color(1.00,.92,.55); // G — yellow
+  if(bv<1.0) return new THREE.Color(1.00,.72,.30); // K — orange
+  if(bv<1.5) return new THREE.Color(1.00,.45,.18); // M — orange-red
+  return new THREE.Color(1.00,.28,.12);             // M+ — deep red
 }
 
-// ── Named star catalog ─────────────────────────────────────────────────────
-// [ra, dec, mag, bv, name, constellation, spectral type, description]
-const NAMED=[
-  [101.29,-16.72,-1.46,.00,'Sirius','Canis Major','White main-sequence (A1V)','The brightest star in the night sky at 8.6 light-years away. Its name comes from the Greek for "glowing" or "scorching."'],
-  [95.99,7.41,0.42,1.85,'Betelgeuse','Orion','Red supergiant (M2Iab)','A massive dying star ~700× the Sun\'s diameter. It will eventually explode as a supernova — possibly within 100,000 years.'],
-  [79.17,45.98,.08,.80,'Capella','Auriga','Binary giant (G8III+G1III)','Two yellow giant stars orbiting each other every 104 days. The sixth-brightest star in the sky.'],
-  [114.83,5.23,.34,.42,'Procyon','Canis Minor','Yellow-white subgiant (F5IV)','One of our nearest neighbors at 11.5 ly. Has a white dwarf companion slowly cooling in the dark.'],
-  [78.63,-8.2,.13,-.03,'Rigel','Orion','Blue supergiant (B8Ia)','A luminous blue supergiant ~860 ly away — roughly 120,000 times the Sun\'s luminosity.'],
-  [279.23,38.78,.03,0,'Vega','Lyra','White main-sequence (A0Va)','The fifth brightest star and one of the vertices of the Summer Triangle. Was Earth\'s pole star ~14,000 years ago.'],
-  [297.7,8.87,.77,-.03,'Altair','Aquila','White main-sequence (A7V)','Spins so fast (roughly a 9-hour day) it visibly bulges at its equator — 20% wider than it is tall.'],
-  [310.36,45.28,1.25,.09,'Deneb','Cygnus','Blue-white supergiant (A2Ia)','One of the most luminous stars known, possibly 200,000× the Sun. The "tail" of the Swan.'],
-  [68.98,16.51,.85,.96,'Aldebaran','Taurus','Red giant (K5III)','The angry red "eye" of Taurus the Bull, 65 light-years away. Its diameter is roughly 44× the Sun.'],
-  [152.09,-60.38,-.72,.15,'Canopus','Carina','Yellow-white supergiant (F0II)','The second brightest star in the sky, used as a navigation beacon by space probes.'],
-  [201.3,-11.16,.98,-.23,'Spica','Virgo','Blue binary (B1V+B2V)','Two hot stars so gravitationally close they distort each other into egg shapes, completing an orbit every four days.'],
-  [247.35,-26.43,.96,1.83,'Antares','Scorpius','Red supergiant (M1.5Iab)','Heart of the Scorpion, rival of Mars in redness. So enormous that if placed at our Sun, it would engulf Jupiter.'],
-  [116.33,28.03,1.14,1.0,'Pollux','Gemini','Orange giant (K0III)','The brighter of the Gemini twins, with a confirmed giant exoplanet in orbit around it.'],
-  [113.65,31.89,1.58,.03,'Castor','Gemini','Sextuple star system','Actually six stars arranged in three orbiting pairs — one of the most remarkable multiple star systems in the sky.'],
-  [37.95,89.26,1.97,.6,'Polaris','Ursa Minor','Yellow supergiant (F7Ib)','The North Star, currently within 0.7° of the celestial north pole. Has guided navigators for millennia.'],
-  [84.05,-1.2,2.25,.13,'Mintaka','Orion','Multiple star (O9.5II)','The westernmost star of Orion\'s Belt, nearly exactly on the celestial equator — rises and sets almost due east and west.'],
-  [84.41,-1.94,1.7,-.2,'Alnilam','Orion','Blue supergiant (B0Ia)','The middle star of Orion\'s Belt, one of the most intrinsically luminous stars known.'],
-  [85.19,-1.94,1.77,-.21,'Alnitak','Orion','Blue supergiant (O9.7Ib)','The easternmost Belt star, located near the famous Horsehead Nebula.'],
-  [86.94,7.41,.18,-.22,'Bellatrix','Orion','Blue-white giant (B2III)','The "Amazon Star" and left shoulder of Orion — one of the hottest bright stars visible to the unaided eye.'],
-  [186.65,-63.1,1.39,.09,'Acrux','Crux','Blue-white binary (B0.5IV+B1V)','The foot of the Southern Cross, used for celestial navigation throughout the southern hemisphere.'],
-  [177.27,14.57,2.14,.09,'Denebola','Leo','White main-sequence (A3Va)','The tail of Leo the Lion. Shows signs of a dusty debris disk — a possible planetary system in formation.'],
-  [141.9,-8.66,1.96,1.44,'Alphard','Hydra','Orange giant (K3IIab)','Known as "the Solitary One" — no bright stars nearby make it stand out dramatically in an empty region of sky.'],
-  [252.17,69.33,2.08,1.57,'Kochab','Ursa Minor','Orange giant (K4III)','Was the pole star around 1500 BCE, during the height of ancient Egypt and the construction of early monuments.'],
-  [2.1,29.09,2.06,.48,'Alpheratz','Andromeda','Blue-white subgiant (B9p)','Shared by both Pegasus and Andromeda in traditional star charts. Has unusual abundances of mercury in its atmosphere.'],
-  [24.43,57.82,2.27,1.58,'Mirach','Andromeda','Red giant (M0IIIb)','A useful pointer star toward the Andromeda Galaxy, our nearest large galactic neighbor.'],
-  [346.19,15.21,2.44,1.67,'Scheat','Pegasus','Red giant (M2.5II-III)','A corner star of the Great Square of Pegasus. A semi-regular variable that slowly pulsates in brightness.'],
-  [213.92,19.18,-.01,1.23,'Arcturus','Boötes','Orange giant (K1.5III)','The brightest star in the northern celestial hemisphere. An ancient star roughly 7 billion years old.'],
-];
+// Constellation abbreviation → full name
+const CON_NAME={And:'Andromeda',Ant:'Antlia',Aps:'Apus',Aqr:'Aquarius',Aql:'Aquila',Ara:'Ara',Ari:'Aries',Aur:'Auriga',Boo:'Boötes',Cae:'Caelum',Cam:'Camelopardalis',Cnc:'Cancer',CVn:'Canes Venatici',CMa:'Canis Major',CMi:'Canis Minor',Cap:'Capricornus',Car:'Carina',Cas:'Cassiopeia',Cen:'Centaurus',Cep:'Cepheus',Cet:'Cetus',Cha:'Chamaeleon',Cir:'Circinus',Col:'Columba',Com:'Coma Berenices',CrA:'Corona Australis',CrB:'Corona Borealis',Crv:'Corvus',Crt:'Crater',Cru:'Crux',Cyg:'Cygnus',Del:'Delphinus',Dor:'Dorado',Dra:'Draco',Equ:'Equuleus',Eri:'Eridanus',For:'Fornax',Gem:'Gemini',Gru:'Grus',Her:'Hercules',Hor:'Horologium',Hya:'Hydra',Hyi:'Hydrus',Ind:'Indus',Lac:'Lacerta',Leo:'Leo',LMi:'Leo Minor',Lep:'Lepus',Lib:'Libra',Lup:'Lupus',Lyn:'Lynx',Lyr:'Lyra',Men:'Mensa',Mic:'Microscopium',Mon:'Monoceros',Mus:'Musca',Nor:'Norma',Oct:'Octans',Oph:'Ophiuchus',Ori:'Orion',Pav:'Pavo',Peg:'Pegasus',Per:'Perseus',Phe:'Phoenix',Pic:'Pictor',Psc:'Pisces',PsA:'Piscis Austrinus',Pup:'Puppis',Pyx:'Pyxis',Ret:'Reticulum',Sge:'Sagitta',Sgr:'Sagittarius',Sco:'Scorpius',Scl:'Sculptor',Sct:'Scutum',Ser:'Serpens',Sex:'Sextans',Tau:'Taurus',Tel:'Telescopium',Tri:'Triangulum',TrA:'Triangulum Australe',Tuc:'Tucana',UMa:'Ursa Major',UMi:'Ursa Minor',Vel:'Vela',Vir:'Virgo',Vol:'Volans',Vul:'Vulpecula'};
+
+// ── HYG Database loader ────────────────────────────────────────────────────
+// Hipparcos/Yale/Gliese merged catalog — 119,614 real stars
+const HYG_URL='https://raw.githubusercontent.com/astronexus/HYG-Database/master/hyg/v3/hyg_v3.csv';
+// HYG v3 column indices:
+//  6=proper  7=ra(hours!)  8=dec  13=mag  16=ci(B-V)  29=con
+let hygCatalog=null; // filled by fetchHYG()
+
+function setProgress(pct,label){
+  document.getElementById('load-bar').style.width=pct+'%';
+  document.getElementById('load-label').textContent=label;
+}
+
+async function fetchHYG(){
+  document.getElementById('load-bar-wrap').style.display='flex';
+  setProgress(5,'Connecting to star catalog…');
+  try{
+    const resp=await fetch(HYG_URL);
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    const total=parseInt(resp.headers.get('content-length')||'0');
+    // Stream with progress
+    const reader=resp.body.getReader();
+    let received=0,chunks=[];
+    while(true){
+      const{done,value}=await reader.read();
+      if(done)break;
+      chunks.push(value);received+=value.length;
+      if(total)setProgress(5+Math.round(received/total*60),'Downloading catalog… '+Math.round(received/1024)+'KB');
+    }
+    setProgress(65,'Parsing '+received+' bytes…');
+    // Decode
+    const text=new TextDecoder().decode(await new Blob(chunks).arrayBuffer());
+    setProgress(70,'Parsing star data…');
+    hygCatalog=parseHYG(text);
+    setProgress(90,'Catalog ready — '+hygCatalog.length.toLocaleString()+' stars');
+    document.getElementById('star-count').textContent=hygCatalog.length.toLocaleString();
+    setTimeout(()=>document.getElementById('load-bar-wrap').style.display='none',1200);
+    return true;
+  }catch(e){
+    console.error('HYG fetch failed:',e);
+    setProgress(100,'Catalog unavailable — check network');
+    document.getElementById('load-label').style.color='#cc4444';
+    return false;
+  }
+}
+
+function parseHYG(text){
+  const lines=text.split('\n');
+  const stars=[];
+  // Skip header (line 0)
+  for(let i=1;i<lines.length;i++){
+    const f=lines[i].split(',');
+    if(f.length<30)continue;
+    const mag=parseFloat(f[13]);
+    if(isNaN(mag)||mag>8.0)continue; // only naked-eye + near-naked-eye
+    const ra=parseFloat(f[7])*15; // hours → degrees
+    const dec=parseFloat(f[8]);
+    if(isNaN(ra)||isNaN(dec))continue;
+    const ci=parseFloat(f[16]); // B-V, may be NaN
+    const name=f[6].trim()||null;
+    const con=f[29].trim()||null;
+    stars.push({ra,dec,mag,ci,name,con});
+  }
+  return stars;
+}
+
+function buildStars(){
+  if(!hygCatalog||hygCatalog.length===0){console.error('No HYG catalog');return;}
+  const pos=[],col=[],sz=[];starData=[];
+  for(const s of hygCatalog){
+    const{alt,az}=toAltAz(s.ra,s.dec,uLat,uLon,jdNow);
+    const v=toVec(alt,az,500);
+    pos.push(v.x,v.y,v.z);
+    const c=bvColor(isNaN(s.ci)?null:s.ci);
+    // Brightness: magnitude scale — each step of 1 mag = ×2.512 in brightness
+    // Clamp faint floor so dim stars are still faintly visible
+    const br=Math.max(0.08, Math.pow(10,-0.4*(s.mag-(-1.5)))*0.9);
+    // Saturation boost so blue/red stars show real hue
+    const mean=(c.r+c.g+c.b)/3;
+    const sat=1.6;
+    const r=Math.max(0,Math.min(1,mean+(c.r-mean)*sat));
+    const g=Math.max(0,Math.min(1,mean+(c.g-mean)*sat));
+    const b=Math.max(0,Math.min(1,mean+(c.b-mean)*sat));
+    col.push(r*br,g*br,b*br);
+    // Point size: bright stars larger, dim stars minimum 1.5px
+    const sz_val=s.mag<0?24:Math.max(1.5,14-s.mag*1.8);
+    sz.push(sz_val);
+    starData.push({...s,alt,az});
+  }
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  geo.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+  geo.setAttribute('size',new THREE.Float32BufferAttribute(sz,1));
+  starPts=new THREE.Points(geo,new THREE.ShaderMaterial({
+    uniforms:{tex:{value:starTex()}},
+    vertexShader:`attribute float size;attribute vec3 color;varying vec3 vC;
+      void main(){vC=color;vec4 mv=modelViewMatrix*vec4(position,1.0);
+      gl_PointSize=size*(500.0/-mv.z);gl_Position=projectionMatrix*mv;}`,
+    fragmentShader:`uniform sampler2D tex;varying vec3 vC;
+      void main(){vec4 t=texture2D(tex,gl_PointCoord);if(t.a<.01)discard;gl_FragColor=vec4(vC,1.)*t;}`,
+    blending:THREE.AdditiveBlending,depthTest:false,transparent:true,vertexColors:true
+  }));
+  skyGroup.add(starPts);
+}
+
+function buildMW(){
+  // Milky Way: 180k particles along galactic plane, converted to equatorial coords
+  // Colors: silvery blue-white (aggregate of billions of stars), warm bulge center
+  const N=180000;
+  const pos=[],col=[];
+  const NGPra=192.85948*Math.PI/180,NGPdec=27.12825*Math.PI/180,lon0=122.93192*Math.PI/180;
+  for(let i=0;i<N;i++){
+    const l=Math.random()*360;
+    const ls=((l+180)%360-180); // signed longitude, 0=galactic center
+    // Latitude: narrow disk gaussian, wider at bulge
+    const spread=Math.abs(ls)<30?16:8;
+    const b=(Math.random()+Math.random()-1)*spread; // sum-of-2 gaussian
+    // Galactic → equatorial conversion
+    const lR=l*Math.PI/180,bR=b*Math.PI/180;
+    const sinD=Math.sin(bR)*Math.sin(NGPdec)+Math.cos(bR)*Math.cos(NGPdec)*Math.cos(lon0-lR);
+    const dec=Math.asin(Math.max(-1,Math.min(1,sinD)))*180/Math.PI;
+    const y2=Math.cos(bR)*Math.sin(lon0-lR);
+    const x2=Math.sin(bR)*Math.cos(NGPdec)-Math.cos(bR)*Math.sin(NGPdec)*Math.cos(lon0-lR);
+    const ra=((NGPra+Math.atan2(y2,x2))*180/Math.PI%360+360)%360;
+    const{alt,az}=toAltAz(ra,dec,uLat,uLon,jdNow);
+    const v=toVec(alt,az,478+Math.random()*10);
+    pos.push(v.x,v.y,v.z);
+    // Brightness
+    const core=Math.exp(-Math.pow(ls/35,2)*0.5);
+    const bulge=Math.exp(-Math.pow(ls/18,2)*0.5)*Math.exp(-Math.pow(b/10,2)*0.5);
+    const latFade=Math.max(0.15,1-Math.abs(b)/22);
+    const br=(0.012+Math.random()*0.03+core*0.08+bulge*0.15)*latFade;
+    // Color: mostly silver/blue-white, warm core, rare pink HII regions
+    const rnd=Math.random();
+    let cr,cg,cb;
+    if(rnd<0.015&&Math.abs(b)<10&&Math.abs(ls)>25){ // H-alpha pink regions
+      cr=br*1.1;cg=br*0.28;cb=br*0.52;
+    } else if(bulge>0.4&&rnd<bulge*0.45){ // warm galactic bulge
+      cr=br*1.0;cg=br*0.82;cb=br*0.60;
+    } else { // dominant: cool blue-white aggregate
+      const blue=Math.random()*0.12;
+      cr=br*0.86;cg=br*0.90;cb=br*(1.0+blue*0.1);
+    }
+    col.push(cr,cg,cb);
+  }
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  geo.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+  mwPts=new THREE.Points(geo,new THREE.PointsMaterial({
+    size:2.0,vertexColors:true,sizeAttenuation:true,
+    blending:THREE.AdditiveBlending,depthTest:false,transparent:true,opacity:0.82
+  }));
+  skyGroup.add(mwPts);
+}
 
 // ── Constellations ─────────────────────────────────────────────────────────
-// Each entry: array of line segments [[ra1,dec1],[ra2,dec2]], label position
 const CONS={
   Orion:{s:[[[88.79,7.41],[86.94,7.41]],[[86.94,7.41],[84.05,-1.2]],[[84.05,-1.2],[84.41,-1.94]],[[84.41,-1.94],[85.19,-1.94]],[[85.19,-1.94],[78.63,-8.2]],[[88.79,7.41],[83.0,-6.0]],[[83.0,-6.0],[78.63,-8.2]]],lr:83,ld:4},
   'Ursa Major':{s:[[[165.9,61.75],[183.9,57.03]],[[183.9,57.03],[193.5,55.96]],[[193.5,55.96],[201.0,54.93]],[[201.0,54.93],[206.9,49.31]],[[193.5,55.96],[185.0,53.7]],[[185.0,53.7],[177.0,56.4]]],lr:185,ld:60},
@@ -315,6 +450,10 @@ async function checkXR(){
   }
 }
 
+// Kick off HYG fetch as soon as page loads — runs in background while user reads UI
+fetchHYG().then(ok=>{
+  if(!ok) setS('Star catalog unavailable — check internet connection');
+});
 
 // ── Star texture ───────────────────────────────────────────────────────────
 function starTex(){
@@ -325,140 +464,21 @@ function starTex(){
   x.fillStyle=g;x.fillRect(0,0,64,64);return new THREE.CanvasTexture(c);
 }
 
-// ── Build scene ────────────────────────────────────────────────────────────
+// ── Build scene (sync — HYG data must be loaded first) ─────────────────────
 function build(){
   scene=new THREE.Scene();
-  // skyGroup holds all sky content — can be scaled for zoom
   skyGroup=new THREE.Group();
   scene.add(skyGroup);
-  // Deep space background — very dark navy so empty patches aren't pure black
   const bgSphere=new THREE.Mesh(
     new THREE.SphereGeometry(490,32,32),
-    new THREE.MeshBasicMaterial({color:0x010209,side:THREE.BackSide})
+    new THREE.MeshBasicMaterial({color:0x010208,side:THREE.BackSide})
   );
   skyGroup.add(bgSphere);
   camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.01,2000);
   buildStars();buildMW();buildCons();
 }
 
-function buildStars(){
-  const SEED=35000,phi2=(1+Math.sqrt(5))/2;
-  const pos=[],col=[],sz=[];starData=[];
-  function add(ra,dec,mag,bv,name,con,type,desc){
-    const{alt,az}=toAltAz(ra,dec,uLat,uLon,jdNow);
-    const v=toVec(alt,az);
-    pos.push(v.x,v.y,v.z);
-    const c=bvColor(bv);
-    // Generous brightness — faint stars need to be visible in a dark sky
-    const br=Math.max(0.14, 1-(mag+1.5)/9.0);
-    col.push(c.r*br, c.g*br, c.b*br);
-    // Size: bright stars have halos, faint stars still ≥3px so they're visible
-    const s=mag<0 ? 20-mag*2 : Math.max(3.0, 18-mag*2.2);
-    sz.push(Math.min(s,22));
-    starData.push({ra,dec,mag,bv,name,con,type,desc,alt,az});
-  }
-  NAMED.forEach(s=>add(...s));
-  for(let i=0;i<SEED;i++){
-    const inc=Math.acos(1-2*(i+.5)/SEED);
-    const az2=2*Math.PI*i/phi2;
-    const dec2=(inc*180/Math.PI)-90;
-    const ra2=((az2*180/Math.PI)%360+360)%360;
-    // Magnitude: realistic power-law skewed toward visible stars (1.5-7)
-    const mag=1.5+Math.pow(Math.random(),.38)*5.5;
-    // B-V color index: full range from hot blue to cool red
-    const bv=-.5+Math.pow(Math.random(),.55)*2.8;
-    add(ra2,dec2,mag,bv,null,null,null,null);
-  }
-  const geo=new THREE.BufferGeometry();
-  geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
-  geo.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
-  geo.setAttribute('size',new THREE.Float32BufferAttribute(sz,1));
-  starPts=new THREE.Points(geo,new THREE.ShaderMaterial({
-    uniforms:{tex:{value:starTex()}},
-    // Use 500. so at sphere radius 500 the size is 1:1 — no shrinkage
-    vertexShader:`attribute float size;attribute vec3 color;varying vec3 vC;void main(){vC=color;vec4 mv=modelViewMatrix*vec4(position,1.);gl_PointSize=size*(500./-mv.z);gl_Position=projectionMatrix*mv;}`,
-    fragmentShader:`uniform sampler2D tex;varying vec3 vC;void main(){vec4 t=texture2D(tex,gl_PointCoord);if(t.a<.01)discard;gl_FragColor=vec4(vC,1.)*t;}`,
-    blending:THREE.AdditiveBlending,depthTest:false,transparent:true,vertexColors:true
-  }));
-  skyGroup.add(starPts);
-  document.getElementById('star-count').textContent=(NAMED.length+SEED).toLocaleString();
-}
-
-function buildMW(){
-  const N=130000;
-  const pos=[],col=[];
-  const NGPra=192.85948*Math.PI/180,NGPdec=27.12825*Math.PI/180,lon0=122.93192*Math.PI/180;
-
-  for(let i=0;i<N;i++){
-    const l=Math.random()*360;
-    const lSigned=((l+180)%360-180); // 0° = galactic center direction
-
-    // Latitude distribution: narrower disk with wider bulge near center
-    const isBulge=Math.abs(lSigned)<40;
-    const spread=isBulge?28:18;
-    const b=(Math.random()+Math.random()+Math.random()-1.5)*spread;
-
-    // ── Reject to carve Great Rift dust lanes ────────────────────────────
-    // Primary rift: narrow dark band along midplane through core
-    const riftProb=Math.exp(-Math.pow(b/2.2,2)*.5)*
-                   (0.75*Math.exp(-Math.pow(lSigned/55,2)*.4)+
-                    0.4 *Math.exp(-Math.pow((lSigned-45)/35,2)*.5));
-    if(Math.random()<riftProb) continue;
-
-    const lR=l*Math.PI/180,bR=b*Math.PI/180;
-    const sinD=Math.sin(bR)*Math.sin(NGPdec)+Math.cos(bR)*Math.cos(NGPdec)*Math.cos(lon0-lR);
-    const dec=Math.asin(Math.max(-1,Math.min(1,sinD)))*180/Math.PI;
-    const y2=Math.cos(bR)*Math.sin(lon0-lR);
-    const x2=Math.sin(bR)*Math.cos(NGPdec)-Math.cos(bR)*Math.sin(NGPdec)*Math.cos(lon0-lR);
-    const ra=((NGPra+Math.atan2(y2,x2))*180/Math.PI%360+360)%360;
-    const{alt,az}=toAltAz(ra,dec,uLat,uLon,jdNow);
-    const v=toVec(alt,az,480+Math.random()*15);
-    pos.push(v.x,v.y,v.z);
-
-    // Density weights
-    const central=Math.exp(-Math.pow(lSigned/38,2)*.5);
-    const bulge  =Math.exp(-Math.pow(lSigned/18,2)*.5)*Math.exp(-Math.pow(b/10,2)*.5);
-    const outerArm=(1-central)*Math.exp(-Math.pow(b/16,2)*.4)*
-                    Math.exp(-Math.pow(Math.abs(lSigned)/120,2)*.3);
-
-    // Brightness: core brighter, latitude falloff
-    const latFade=Math.max(.25,1-Math.abs(b)/32);
-    const br=(.02+Math.random()*.05+central*.14+bulge*.22)*latFade;
-
-    // ── Color mixing ──────────────────────────────────────────────────────
-    const coreBlend=bulge*0.85;
-    const armBlend =outerArm*0.6;
-    // Star-forming region (H-alpha pink), scattered in outer disk
-    const sfr=Math.random()<.022&&Math.abs(b)<13&&Math.abs(lSigned)>28&&Math.abs(lSigned)<165;
-    const rnd=Math.random();
-
-    let cr,cg,cb;
-    if(sfr){
-      cr=br*(1.08+rnd*.12); cg=br*(.35+rnd*.1); cb=br*(.58+rnd*.18);
-    } else if(coreBlend>0.28&&rnd<coreBlend){
-      // Galactic bulge: warm amber/gold — dust-reddened old stellar population
-      const jit=Math.random()*.1;
-      cr=br*(1.02+jit); cg=br*(.62+jit*.3); cb=br*(.22+jit*.15);
-    } else if(armBlend>0.12&&rnd<armBlend){
-      // Outer arms: blue-white — young OB stars, hot nebulae
-      const jit=Math.random()*.12;
-      cr=br*(.52+jit*.4); cg=br*(.70+jit*.25); cb=br*(1.0+jit*.08);
-    } else {
-      // General disk: neutral white with subtle warm drift
-      const w=Math.random()*.22;
-      cr=br*(1+w*.9); cg=br*(1+w*.5); cb=br*(1-w*.06);
-    }
-    col.push(cr,cg,cb);
-  }
-  const geo=new THREE.BufferGeometry();
-  geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
-  geo.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
-  mwPts=new THREE.Points(geo,new THREE.PointsMaterial({
-    size:3.0,vertexColors:true,sizeAttenuation:true,
-    blending:THREE.AdditiveBlending,depthTest:false,transparent:true,opacity:.92
-  }));
-  skyGroup.add(mwPts);
-}
+// Old procedural buildStars/buildMW removed — replaced by HYG loader above
 
 function buildCons(){
   cLines.forEach(l=>skyGroup.remove(l));cLabels.forEach(l=>skyGroup.remove(l));
@@ -524,16 +544,19 @@ document.addEventListener('click',e=>{
 // ── Info card ──────────────────────────────────────────────────────────────
 function showCard(s){
   document.getElementById('ic-name').textContent=s.name||'Unnamed star';
-  document.getElementById('ic-type').textContent=s.type||(s.con?'Star in '+s.con:'Background star');
+  const conFull=s.con?(CON_NAME[s.con]||s.con):null;
+  document.getElementById('ic-type').textContent=conFull?'Star in '+conFull:'Background star';
   const rows=[];
-  if(s.con)rows.push(['Constellation',s.con]);
+  if(conFull)rows.push(['Constellation',conFull]);
   rows.push(['Magnitude',s.mag.toFixed(1)],['Altitude',s.alt.toFixed(1)+'°'],['Azimuth',s.az.toFixed(1)+'°']);
+  if(s.ci!=null&&!isNaN(s.ci))rows.push(['B–V color',s.ci.toFixed(2)]);
   document.getElementById('ic-grid').innerHTML=rows.map(([k,v])=>
     `<div class="ic-row"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
-  document.getElementById('ic-desc').textContent=s.desc||
-    (s.mag<2?'A star bright enough to see even from light-polluted cities — now revealed in its full glory.':
-    s.mag<4?'Visible from suburban skies but washed out by city lights. Dark skies reveal its true color.':
-    'This star is completely invisible from most cities due to light pollution — only a dark sky reveals it.');
+  document.getElementById('ic-desc').textContent=
+    s.mag<1?'One of the brightest stars in the sky — visible even through heavy light pollution.':
+    s.mag<3?'A prominent naked-eye star, washed out by suburban skies but brilliant from dark locations.':
+    s.mag<5?'Visible under dark skies, completely hidden from most cities by light pollution.':
+    'A faint star invisible to city dwellers — only revealed under truly dark skies. This is what light pollution robs from us.';
   document.getElementById('info-card').style.display='block';
 }
 function hideCard(){document.getElementById('info-card').style.display='none';}
@@ -569,18 +592,94 @@ async function launchVR(){
   renderer.xr.enabled=true;document.body.appendChild(renderer.domElement);
   hide();showHUD();
   document.getElementById('hud').querySelector('.hud-hint').textContent=
-    'Trigger: identify star · Grip: menu · R-stick: rotate · L-stick ↕: zoom';
+    'Trigger: identify star · Grip: dismiss · Sticks: rotate / zoom';
 
-  // Player rig — lets us yaw the whole view
+  // ── 3D info card — canvas sprite parented to camera so it's always visible ─
+  // (DOM overlays are invisible inside immersive-vr on Quest)
+  const vrCardCanvas=document.createElement('canvas');
+  vrCardCanvas.width=640;vrCardCanvas.height=320;
+  const vrCardTex=new THREE.CanvasTexture(vrCardCanvas);
+  const vrCardMesh=new THREE.Mesh(
+    new THREE.PlaneGeometry(0.55,0.275),
+    new THREE.MeshBasicMaterial({map:vrCardTex,transparent:true,depthTest:false,side:THREE.DoubleSide})
+  );
+  vrCardMesh.position.set(0,-0.12,-0.9);
+  vrCardMesh.visible=false;
+  camera.add(vrCardMesh);
+  scene.add(camera); // camera must be in scene for its children to render
+
+  function drawVRCard(s){
+    const cv=vrCardCanvas,ctx=cv.getContext('2d');
+    ctx.clearRect(0,0,640,320);
+    ctx.fillStyle='rgba(6,4,18,0.94)';
+    rrect(ctx,0,0,640,320,22);ctx.fill();
+    ctx.strokeStyle='rgba(110,90,255,0.55)';ctx.lineWidth=2.5;
+    rrect(ctx,0,0,640,320,22);ctx.stroke();
+    ctx.fillStyle='#e8e4ff';ctx.font='bold 38px sans-serif';
+    ctx.textBaseline='top';ctx.textAlign='left';
+    ctx.fillText((s.name||'Unnamed star').slice(0,24),22,18);
+    const conFull=s.con?(CON_NAME[s.con]||s.con):null;
+    ctx.fillStyle='#6060aa';ctx.font='21px sans-serif';
+    ctx.fillText((conFull?'Star in '+conFull:'Background star').slice(0,40),22,66);
+    ctx.strokeStyle='rgba(255,255,255,0.08)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(22,100);ctx.lineTo(618,100);ctx.stroke();
+    const rows=[];
+    if(conFull)rows.push(['Constellation',conFull]);
+    rows.push(['Magnitude',s.mag.toFixed(1)],['Altitude',s.alt.toFixed(1)+'°'],['Azimuth',s.az.toFixed(1)+'°']);
+    rows.forEach(([k,v],i)=>{
+      ctx.fillStyle='#444466';ctx.font='20px sans-serif';ctx.fillText(k,22,112+i*38);
+      ctx.fillStyle='#cccfff';ctx.font='bold 20px sans-serif';ctx.fillText(v,230,112+i*38);
+    });
+    ctx.strokeStyle='rgba(255,255,255,0.07)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(22,268);ctx.lineTo(618,268);ctx.stroke();
+    ctx.fillStyle='#5555aa';ctx.font='18px sans-serif';
+    const desc=s.mag<1?'One of the brightest stars in the sky.':
+      s.mag<3?'A prominent naked-eye star, brilliant from dark locations.':
+      s.mag<5?'Visible under dark skies, hidden from cities by light pollution.':
+      'Only revealed under truly dark skies — hidden from most of humanity.';
+    wrapVR(ctx,desc,22,278,596,20);
+    vrCardTex.needsUpdate=true;
+    vrCardMesh.visible=true;
+  }
+  function hideVRCard(){vrCardMesh.visible=false;}
+  function rrect(ctx,x,y,w,h,r){
+    ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+    ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+    ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();
+  }
+  function wrapVR(ctx,text,x,y,maxW,lh){
+    const words=text.split(' ');let line='';
+    for(const w of words){
+      const t=line+w+' ';
+      if(ctx.measureText(t).width>maxW&&line){ctx.fillText(line.trim(),x,y);line=w+' ';y+=lh;}
+      else line=t;
+    }
+    if(line.trim())ctx.fillText(line.trim(),x,y);
+  }
+
+  // ── Player rig ─────────────────────────────────────────────────────────────
   const player=new THREE.Group();
   scene.add(player);
   player.add(camera);
 
+  // Controller ray lines — extend to 600 units to reach the star sphere
   function makeRayLine(){
-    const g=new THREE.BufferGeometry().setFromPoints(
-      [new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,-1)]);
-    return new THREE.Line(g,new THREE.LineBasicMaterial({color:0x9977ff,transparent:true,opacity:.55}));
+    const pts=[new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,-600)];
+    const g=new THREE.BufferGeometry().setFromPoints(pts);
+    const line=new THREE.Line(g,new THREE.LineBasicMaterial({
+      color:0xaa88ff,transparent:true,opacity:.6,depthTest:false
+    }));
+    // Dot at tip
+    const dot=new THREE.Mesh(
+      new THREE.SphereGeometry(.04,8,8),
+      new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.8,depthTest:false})
+    );
+    dot.position.z=-600;
+    line.add(dot);
+    return line;
   }
+
   const ctrl=[0,1].map(i=>{
     const c=renderer.xr.getController(i);
     c.add(makeRayLine());
@@ -589,57 +688,53 @@ async function launchVR(){
     return c;
   });
 
-  // ── Trigger = identify star ───────────────────────────────────────────────
-  // Use 'select' (fires on button *release*) — matrixWorld is guaranteed
-  // updated by then, unlike selectstart which fires mid-frame.
+  // ── Trigger: identify star ─────────────────────────────────────────────────
   function pickFromCtrl(c){
     if(!F.identify||!starPts)return;
-    // Force full chain update so matrixWorld is current
-    player.updateMatrixWorld(true);
+    scene.updateMatrixWorld(true);
     c.updateMatrixWorld(true);
-    const tmp=new THREE.Matrix4().identity().extractRotation(c.matrixWorld);
-    const ray=new THREE.Raycaster();
-    ray.ray.origin.setFromMatrixPosition(c.matrixWorld);
-    ray.ray.direction.set(0,0,-1).applyMatrix4(tmp);
-    ray.params={Points:{threshold:12}};
+    const origin=new THREE.Vector3().setFromMatrixPosition(c.matrixWorld);
+    const dir=new THREE.Vector3(0,0,-1).transformDirection(c.matrixWorld).normalize();
+    const ray=new THREE.Raycaster(origin,dir,0.01,2000);
+    ray.params={Points:{threshold:18}}; // generous — stars are far away
     const hits=ray.intersectObject(starPts);
-    if(hits.length>0){const s=starData[hits[0].index];if(s){showCard(s);return;}}
-    hideCard();
+    if(hits.length>0){
+      const s=starData[hits[0].index];
+      if(s){drawVRCard(s);return;}
+    }
+    hideVRCard();
   }
   ctrl[0].addEventListener('select',()=>pickFromCtrl(ctrl[0]));
   ctrl[1].addEventListener('select',()=>pickFromCtrl(ctrl[1]));
 
-  // ── Either grip = toggle menu ─────────────────────────────────────────────
-  function toggleMenu(){
-    panelOpen=!panelOpen;
-    document.getElementById('feature-panel').style.display=panelOpen?'flex':'none';
-  }
-  ctrl[0].addEventListener('squeezestart',toggleMenu);
-  ctrl[1].addEventListener('squeezestart',toggleMenu);
+  // ── Grip: dismiss card ─────────────────────────────────────────────────────
+  ctrl[0].addEventListener('squeezestart',hideVRCard);
+  ctrl[1].addEventListener('squeezestart',hideVRCard);
 
-  // ── Session: dom-overlay optional so panel toggles are tappable ───────────
+  // ── Session (no dom-overlay needed — we use 3D card instead) ──────────────
   const sess=await navigator.xr.requestSession('immersive-vr',{
     requiredFeatures:['local-floor'],
-    optionalFeatures:['bounded-floor','dom-overlay'],
-    domOverlay:{root:document.body}
+    optionalFeatures:['bounded-floor']
   });
   renderer.xr.setSession(sess);
 
   let vrYaw=0,vrZoom=1.0;
-  const DEAD=0.18,TURN=0.018,ZOOM=0.01;
+  const DEAD=0.18,TURN=0.016,ZOOM=0.008;
 
   renderer.setAnimationLoop(()=>{
     if(sess.inputSources){
       for(const src of sess.inputSources){
         if(!src.gamepad)continue;
         const ax=src.gamepad.axes;
+        // Right stick horizontal → yaw (rotate view left/right)
         if(src.handedness==='right'&&ax.length>=3){
-          const hx=ax[2]; // right stick horizontal → yaw
-          if(Math.abs(hx)>DEAD) vrYaw-=hx*TURN;
+          const hx=ax[2];
+          if(Math.abs(hx)>DEAD)vrYaw-=hx*TURN;
         }
+        // Left stick vertical → zoom (push up = zoom in)
         if(src.handedness==='left'&&ax.length>=4){
-          const vy=ax[3]; // left stick vertical → zoom (push up = zoom in)
-          if(Math.abs(vy)>DEAD) vrZoom=Math.max(.35,Math.min(4.0,vrZoom*(1-vy*ZOOM)));
+          const vy=ax[3];
+          if(Math.abs(vy)>DEAD)vrZoom=Math.max(.3,Math.min(5.0,vrZoom*(1-vy*ZOOM)));
         }
       }
     }
