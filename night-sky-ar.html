@@ -231,7 +231,7 @@ const CONS={
 // ── State ──────────────────────────────────────────────────────────────────
 let uLat=38.9897,uLon=-76.9378;
 let jdNow=jd(new Date());
-let scene,camera,renderer;
+let scene,camera,renderer,skyGroup;
 let starPts,mwPts,cLines=[],cLabels=[];
 let starData=[];
 let desktop=false;
@@ -328,30 +328,46 @@ function starTex(){
 // ── Build scene ────────────────────────────────────────────────────────────
 function build(){
   scene=new THREE.Scene();
+  // skyGroup holds all sky content — can be scaled for zoom
+  skyGroup=new THREE.Group();
+  scene.add(skyGroup);
+  // Deep space background — very dark navy so empty patches aren't pure black
+  const bgSphere=new THREE.Mesh(
+    new THREE.SphereGeometry(490,32,32),
+    new THREE.MeshBasicMaterial({color:0x010209,side:THREE.BackSide})
+  );
+  skyGroup.add(bgSphere);
   camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.01,2000);
   buildStars();buildMW();buildCons();
 }
 
 function buildStars(){
-  const SEED=25000,phi2=(1+Math.sqrt(5))/2;
+  const SEED=35000,phi2=(1+Math.sqrt(5))/2;
   const pos=[],col=[],sz=[];starData=[];
   function add(ra,dec,mag,bv,name,con,type,desc){
     const{alt,az}=toAltAz(ra,dec,uLat,uLon,jdNow);
     const v=toVec(alt,az);
     pos.push(v.x,v.y,v.z);
     const c=bvColor(bv);
-    const ext=alt>0?Math.min(1,.6+.4*(alt/90)):.35;
-    const br=Math.max(.03,1-(mag-(-1.5))/8.5)*ext;
-    col.push(c.r*br,c.g*br,c.b*br);
-    sz.push(Math.max(.8,Math.min(18,(1-(mag+1.5)/8)*18)));
+    // Generous brightness — faint stars need to be visible in a dark sky
+    const br=Math.max(0.14, 1-(mag+1.5)/9.0);
+    col.push(c.r*br, c.g*br, c.b*br);
+    // Size: bright stars have halos, faint stars still ≥3px so they're visible
+    const s=mag<0 ? 20-mag*2 : Math.max(3.0, 18-mag*2.2);
+    sz.push(Math.min(s,22));
     starData.push({ra,dec,mag,bv,name,con,type,desc,alt,az});
   }
   NAMED.forEach(s=>add(...s));
   for(let i=0;i<SEED;i++){
     const inc=Math.acos(1-2*(i+.5)/SEED);
     const az2=2*Math.PI*i/phi2;
-    const dec2=(inc*180/Math.PI)-90,ra2=((az2*180/Math.PI)%360+360)%360;
-    add(ra2,dec2,2.5+Math.pow(Math.random(),.4)*4,-.4+Math.pow(Math.random(),.7)*2.2,null,null,null,null);
+    const dec2=(inc*180/Math.PI)-90;
+    const ra2=((az2*180/Math.PI)%360+360)%360;
+    // Magnitude: realistic power-law skewed toward visible stars (1.5-7)
+    const mag=1.5+Math.pow(Math.random(),.38)*5.5;
+    // B-V color index: full range from hot blue to cool red
+    const bv=-.5+Math.pow(Math.random(),.55)*2.8;
+    add(ra2,dec2,mag,bv,null,null,null,null);
   }
   const geo=new THREE.BufferGeometry();
   geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
@@ -359,23 +375,36 @@ function buildStars(){
   geo.setAttribute('size',new THREE.Float32BufferAttribute(sz,1));
   starPts=new THREE.Points(geo,new THREE.ShaderMaterial({
     uniforms:{tex:{value:starTex()}},
-    vertexShader:`attribute float size;attribute vec3 color;varying vec3 vC;void main(){vC=color;vec4 mv=modelViewMatrix*vec4(position,1.);gl_PointSize=size*(350./-mv.z);gl_Position=projectionMatrix*mv;}`,
+    // Use 500. so at sphere radius 500 the size is 1:1 — no shrinkage
+    vertexShader:`attribute float size;attribute vec3 color;varying vec3 vC;void main(){vC=color;vec4 mv=modelViewMatrix*vec4(position,1.);gl_PointSize=size*(500./-mv.z);gl_Position=projectionMatrix*mv;}`,
     fragmentShader:`uniform sampler2D tex;varying vec3 vC;void main(){vec4 t=texture2D(tex,gl_PointCoord);if(t.a<.01)discard;gl_FragColor=vec4(vC,1.)*t;}`,
     blending:THREE.AdditiveBlending,depthTest:false,transparent:true,vertexColors:true
   }));
-  scene.add(starPts);
+  skyGroup.add(starPts);
   document.getElementById('star-count').textContent=(NAMED.length+SEED).toLocaleString();
 }
 
 function buildMW(){
-  const N=90000;
+  const N=130000;
   const pos=[],col=[];
   const NGPra=192.85948*Math.PI/180,NGPdec=27.12825*Math.PI/180,lon0=122.93192*Math.PI/180;
+
   for(let i=0;i<N;i++){
     const l=Math.random()*360;
-    const b=(Math.random()+Math.random()+Math.random()-1.5)*24;
-    const lSigned=((l+180)%360-180); // -180..+180, 0° = galactic center
-    const central=Math.exp(-Math.pow(lSigned/40,2)*.5);
+    const lSigned=((l+180)%360-180); // 0° = galactic center direction
+
+    // Latitude distribution: narrower disk with wider bulge near center
+    const isBulge=Math.abs(lSigned)<40;
+    const spread=isBulge?28:18;
+    const b=(Math.random()+Math.random()+Math.random()-1.5)*spread;
+
+    // ── Reject to carve Great Rift dust lanes ────────────────────────────
+    // Primary rift: narrow dark band along midplane through core
+    const riftProb=Math.exp(-Math.pow(b/2.2,2)*.5)*
+                   (0.75*Math.exp(-Math.pow(lSigned/55,2)*.4)+
+                    0.4 *Math.exp(-Math.pow((lSigned-45)/35,2)*.5));
+    if(Math.random()<riftProb) continue;
+
     const lR=l*Math.PI/180,bR=b*Math.PI/180;
     const sinD=Math.sin(bR)*Math.sin(NGPdec)+Math.cos(bR)*Math.cos(NGPdec)*Math.cos(lon0-lR);
     const dec=Math.asin(Math.max(-1,Math.min(1,sinD)))*180/Math.PI;
@@ -386,43 +415,53 @@ function buildMW(){
     const v=toVec(alt,az,480+Math.random()*15);
     pos.push(v.x,v.y,v.z);
 
-    const br=.022+Math.random()*.055+central*.09;
-    // How "core-like" this particle is (bright center + near midplane)
-    const coreW=central*Math.exp(-Math.pow(b/14,2)*.5);
-    // Outer arm blue (away from center, near midplane)
-    const armW=(1-central)*Math.exp(-Math.pow(b/18,2)*.4)*Math.exp(-Math.pow(lSigned/110,2)*.5);
-    // Star-forming pink knots (random scattered along mid-disk, not at very center)
-    const sfr=Math.random()<.018&&Math.abs(b)<12&&Math.abs(lSigned)>20&&Math.abs(lSigned)<150;
+    // Density weights
+    const central=Math.exp(-Math.pow(lSigned/38,2)*.5);
+    const bulge  =Math.exp(-Math.pow(lSigned/18,2)*.5)*Math.exp(-Math.pow(b/10,2)*.5);
+    const outerArm=(1-central)*Math.exp(-Math.pow(b/16,2)*.4)*
+                    Math.exp(-Math.pow(Math.abs(lSigned)/120,2)*.3);
+
+    // Brightness: core brighter, latitude falloff
+    const latFade=Math.max(.25,1-Math.abs(b)/32);
+    const br=(.02+Math.random()*.05+central*.14+bulge*.22)*latFade;
+
+    // ── Color mixing ──────────────────────────────────────────────────────
+    const coreBlend=bulge*0.85;
+    const armBlend =outerArm*0.6;
+    // Star-forming region (H-alpha pink), scattered in outer disk
+    const sfr=Math.random()<.022&&Math.abs(b)<13&&Math.abs(lSigned)>28&&Math.abs(lSigned)<165;
     const rnd=Math.random();
 
     let cr,cg,cb;
     if(sfr){
-      // H-alpha pink / magenta — star-forming nebula
-      cr=br*(1.1+rnd*.15); cg=br*(0.4+rnd*.12); cb=br*(0.65+rnd*.2);
-    } else if(coreW>0.25&&rnd<coreW){
-      // Galactic center: warm amber-gold (dust reddening + old stars)
-      const jitter=Math.random()*.12;
-      cr=br*(1.0+jitter); cg=br*(0.68+jitter*.4); cb=br*(0.28+jitter*.2);
-    } else if(armW>0.15&&rnd<armW*.7){
-      // Outer arms: blue-white (young hot OB stars)
-      const jitter=Math.random()*.12;
-      cr=br*(0.6+jitter*.3); cg=br*(0.78+jitter*.2); cb=br*(1.0+jitter*.1);
+      cr=br*(1.08+rnd*.12); cg=br*(.35+rnd*.1); cb=br*(.58+rnd*.18);
+    } else if(coreBlend>0.28&&rnd<coreBlend){
+      // Galactic bulge: warm amber/gold — dust-reddened old stellar population
+      const jit=Math.random()*.1;
+      cr=br*(1.02+jit); cg=br*(.62+jit*.3); cb=br*(.22+jit*.15);
+    } else if(armBlend>0.12&&rnd<armBlend){
+      // Outer arms: blue-white — young OB stars, hot nebulae
+      const jit=Math.random()*.12;
+      cr=br*(.52+jit*.4); cg=br*(.70+jit*.25); cb=br*(1.0+jit*.08);
     } else {
-      // General disk: neutral-warm white with subtle variation
-      const w=Math.random()*.2;
-      cr=br*(1+w); cg=br*(1+w*.5); cb=br*(1-w*.08);
+      // General disk: neutral white with subtle warm drift
+      const w=Math.random()*.22;
+      cr=br*(1+w*.9); cg=br*(1+w*.5); cb=br*(1-w*.06);
     }
     col.push(cr,cg,cb);
   }
   const geo=new THREE.BufferGeometry();
   geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
   geo.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
-  mwPts=new THREE.Points(geo,new THREE.PointsMaterial({size:3.2,vertexColors:true,sizeAttenuation:true,blending:THREE.AdditiveBlending,depthTest:false,transparent:true,opacity:.9}));
-  scene.add(mwPts);
+  mwPts=new THREE.Points(geo,new THREE.PointsMaterial({
+    size:3.0,vertexColors:true,sizeAttenuation:true,
+    blending:THREE.AdditiveBlending,depthTest:false,transparent:true,opacity:.92
+  }));
+  skyGroup.add(mwPts);
 }
 
 function buildCons(){
-  cLines.forEach(l=>scene.remove(l));cLabels.forEach(l=>scene.remove(l));
+  cLines.forEach(l=>skyGroup.remove(l));cLabels.forEach(l=>skyGroup.remove(l));
   cLines=[];cLabels=[];
   for(const[name,data]of Object.entries(CONS)){
     const pts=[];
@@ -434,11 +473,11 @@ function buildCons(){
     const geo=new THREE.BufferGeometry();
     geo.setAttribute('position',new THREE.Float32BufferAttribute(pts,3));
     const line=new THREE.LineSegments(geo,new THREE.LineBasicMaterial({color:0x3344aa,transparent:true,opacity:.4,depthTest:false}));
-    scene.add(line);cLines.push(line);
+    skyGroup.add(line);cLines.push(line);
     const lp=toAltAz(data.lr,data.ld,uLat,uLon,jdNow);
     const sp=makeLabel(name.toUpperCase());
     sp.position.copy(toVec(lp.alt,lp.az,488));
-    scene.add(sp);cLabels.push(sp);
+    skyGroup.add(sp);cLabels.push(sp);
   }
 }
 
@@ -530,20 +569,18 @@ async function launchVR(){
   renderer.xr.enabled=true;document.body.appendChild(renderer.domElement);
   hide();showHUD();
   document.getElementById('hud').querySelector('.hud-hint').textContent=
-    'Trigger: identify star · Either grip: open menu · Right stick: rotate view';
+    'Trigger: identify star · Grip: menu · R-stick: rotate · L-stick ↕: zoom';
 
-  // Player rig for locomotion / yaw rotation
+  // Player rig — lets us yaw the whole view
   const player=new THREE.Group();
   scene.add(player);
   player.add(camera);
 
-  // Ray pointer line factory
   function makeRayLine(){
-    const pts=[new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,-1)];
-    const g=new THREE.BufferGeometry().setFromPoints(pts);
+    const g=new THREE.BufferGeometry().setFromPoints(
+      [new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,-1)]);
     return new THREE.Line(g,new THREE.LineBasicMaterial({color:0x9977ff,transparent:true,opacity:.55}));
   }
-
   const ctrl=[0,1].map(i=>{
     const c=renderer.xr.getController(i);
     c.add(makeRayLine());
@@ -552,23 +589,27 @@ async function launchVR(){
     return c;
   });
 
-  // ── Trigger → identify star via controller ray ────────────────────────────
+  // ── Trigger = identify star ───────────────────────────────────────────────
+  // Use 'select' (fires on button *release*) — matrixWorld is guaranteed
+  // updated by then, unlike selectstart which fires mid-frame.
   function pickFromCtrl(c){
     if(!F.identify||!starPts)return;
-    const tmp=new THREE.Matrix4();
-    tmp.identity().extractRotation(c.matrixWorld);
+    // Force full chain update so matrixWorld is current
+    player.updateMatrixWorld(true);
+    c.updateMatrixWorld(true);
+    const tmp=new THREE.Matrix4().identity().extractRotation(c.matrixWorld);
     const ray=new THREE.Raycaster();
     ray.ray.origin.setFromMatrixPosition(c.matrixWorld);
     ray.ray.direction.set(0,0,-1).applyMatrix4(tmp);
-    ray.params={Points:{threshold:10}};
+    ray.params={Points:{threshold:12}};
     const hits=ray.intersectObject(starPts);
     if(hits.length>0){const s=starData[hits[0].index];if(s){showCard(s);return;}}
     hideCard();
   }
-  ctrl[0].addEventListener('selectstart',()=>pickFromCtrl(ctrl[0]));
-  ctrl[1].addEventListener('selectstart',()=>pickFromCtrl(ctrl[1]));
+  ctrl[0].addEventListener('select',()=>pickFromCtrl(ctrl[0]));
+  ctrl[1].addEventListener('select',()=>pickFromCtrl(ctrl[1]));
 
-  // ── Either grip → toggle feature panel ────────────────────────────────────
+  // ── Either grip = toggle menu ─────────────────────────────────────────────
   function toggleMenu(){
     panelOpen=!panelOpen;
     document.getElementById('feature-panel').style.display=panelOpen?'flex':'none';
@@ -576,30 +617,34 @@ async function launchVR(){
   ctrl[0].addEventListener('squeezestart',toggleMenu);
   ctrl[1].addEventListener('squeezestart',toggleMenu);
 
-  // ── Session with optional dom-overlay (makes panel tappable on Quest) ─────
-  let sessOpts={
+  // ── Session: dom-overlay optional so panel toggles are tappable ───────────
+  const sess=await navigator.xr.requestSession('immersive-vr',{
     requiredFeatures:['local-floor'],
     optionalFeatures:['bounded-floor','dom-overlay'],
     domOverlay:{root:document.body}
-  };
-  const sess=await navigator.xr.requestSession('immersive-vr',sessOpts);
+  });
   renderer.xr.setSession(sess);
 
-  let vrYaw=0;
-  const DEAD=0.18,TURN_SPD=0.018;
+  let vrYaw=0,vrZoom=1.0;
+  const DEAD=0.18,TURN=0.018,ZOOM=0.01;
 
   renderer.setAnimationLoop(()=>{
     if(sess.inputSources){
       for(const src of sess.inputSources){
-        if(!src.gamepad||src.handedness!=='right')continue;
+        if(!src.gamepad)continue;
         const ax=src.gamepad.axes;
-        if(ax.length>=3){
-          const hx=ax[2];
-          if(Math.abs(hx)>DEAD) vrYaw-=hx*TURN_SPD;
+        if(src.handedness==='right'&&ax.length>=3){
+          const hx=ax[2]; // right stick horizontal → yaw
+          if(Math.abs(hx)>DEAD) vrYaw-=hx*TURN;
+        }
+        if(src.handedness==='left'&&ax.length>=4){
+          const vy=ax[3]; // left stick vertical → zoom (push up = zoom in)
+          if(Math.abs(vy)>DEAD) vrZoom=Math.max(.35,Math.min(4.0,vrZoom*(1-vy*ZOOM)));
         }
       }
     }
     player.rotation.y=vrYaw;
+    skyGroup.scale.setScalar(vrZoom);
     renderer.render(scene,camera);
   });
   applyF();
@@ -622,7 +667,14 @@ function launchDesktop(){
     if(Math.abs(dx)+Math.abs(dy)>3)moved=true;
     theta-=dx*.003;phi=Math.max(.05,Math.min(Math.PI-.05,phi+dy*.003));pm={x:e.clientX,y:e.clientY};
   });
-  cv.addEventListener('wheel',e=>{fov=Math.max(10,Math.min(120,fov+e.deltaY*.05));camera.fov=fov;camera.updateProjectionMatrix();},{passive:true});
+  cv.addEventListener('wheel',e=>{
+    const delta=e.deltaY*.05;
+    fov=Math.max(10,Math.min(120,fov+delta));
+    camera.fov=fov;camera.updateProjectionMatrix();
+    // Also scale sky for visual zoom effect
+    const sc=skyGroup.scale.x;
+    skyGroup.scale.setScalar(Math.max(.3,Math.min(5,sc*(1-delta*.008))));
+  },{passive:true});
 
   let lt=null,lpd=null,lm=false;
   cv.addEventListener('touchstart',e=>{lt=e.touches[0];lm=false;});
