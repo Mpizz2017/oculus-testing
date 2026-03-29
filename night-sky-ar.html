@@ -253,10 +253,11 @@ function setS(m){document.getElementById('status').textContent=m;}
 if(navigator.geolocation){
   navigator.geolocation.getCurrentPosition(p=>{
     uLat=p.coords.latitude;uLon=p.coords.longitude;
-    document.getElementById('loc-display').textContent=uLat.toFixed(1)+(uLat>=0?'°N':'°S');
+    document.getElementById('loc-display').textContent=uLat.toFixed(1)+(uLat>=0?'°N':'°S')+' ✓';
     document.getElementById('obs-footer').textContent=`Observer: ${uLat.toFixed(2)}°, ${uLon.toFixed(2)}°`;
     checkXR();
-  },()=>{document.getElementById('loc-display').textContent='Default (MD)';setS('Location denied — using College Park, MD');checkXR();});
+  },()=>{document.getElementById('loc-display').textContent='Default (MD)';setS('Location denied — using College Park, MD');checkXR();},
+  {enableHighAccuracy:true,timeout:12000,maximumAge:300000});
 }else checkXR();
 
 async function checkXR(){
@@ -367,29 +368,35 @@ function buildStars(){
 }
 
 function buildMW(){
-  const N=35000,phi3=(1+Math.sqrt(5))/2;
+  // Increased particle count and wider galactic latitude band for a full, lush Milky Way
+  const N=90000;
   const pos=[],col=[];
   const NGPra=192.85948*Math.PI/180,NGPdec=27.12825*Math.PI/180,lon0=122.93192*Math.PI/180;
   for(let i=0;i<N;i++){
-    const l=Math.random()*360,b=(Math.random()+Math.random()+Math.random()-1.5)*14;
-    const central=Math.exp(-Math.pow(((l+180)%360-180)/35,2)*.5);
+    const l=Math.random()*360;
+    // Triangle-distribution band: ~68% within ±12°, tails out to ±30°
+    const b=(Math.random()+Math.random()+Math.random()-1.5)*24;
+    // Extra density boost toward galactic center (l ≈ 0°)
+    const central=Math.exp(-Math.pow(((l+180)%360-180)/40,2)*.5);
     const lR=l*Math.PI/180,bR=b*Math.PI/180;
+    // Correct galactic → equatorial conversion
     const sinD=Math.sin(bR)*Math.sin(NGPdec)+Math.cos(bR)*Math.cos(NGPdec)*Math.cos(lon0-lR);
     const dec=Math.asin(Math.max(-1,Math.min(1,sinD)))*180/Math.PI;
     const y2=Math.cos(bR)*Math.sin(lon0-lR);
-    const x2=Math.cos(bR)*Math.cos(NGPdec)*Math.sin(bR)-Math.sin(bR)*Math.cos(NGPdec);
+    // Fixed x2: was using bR twice and missing the cos(lon0-lR) term
+    const x2=Math.sin(bR)*Math.cos(NGPdec)-Math.cos(bR)*Math.sin(NGPdec)*Math.cos(lon0-lR);
     const ra=((NGPra+Math.atan2(y2,x2))*180/Math.PI%360+360)%360;
     const{alt,az}=toAltAz(ra,dec,uLat,uLon,jdNow);
     const v=toVec(alt,az,480+Math.random()*15);
     pos.push(v.x,v.y,v.z);
-    const br=.012+Math.random()*.032+central*.055;
-    const w=Math.random()*.12;
-    col.push(br*(1+w),br*(1+w*.5),br);
+    const br=.022+Math.random()*.055+central*.09;
+    const w=Math.random()*.18;
+    col.push(br*(1+w),br*(1+w*.6),br*(1-w*.1));
   }
   const geo=new THREE.BufferGeometry();
   geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
   geo.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
-  mwPts=new THREE.Points(geo,new THREE.PointsMaterial({size:1.8,vertexColors:true,sizeAttenuation:true,blending:THREE.AdditiveBlending,depthTest:false,transparent:true,opacity:.75}));
+  mwPts=new THREE.Points(geo,new THREE.PointsMaterial({size:3.2,vertexColors:true,sizeAttenuation:true,blending:THREE.AdditiveBlending,depthTest:false,transparent:true,opacity:.9}));
   scene.add(mwPts);
 }
 
@@ -497,9 +504,75 @@ async function launchVR(){
   renderer.setPixelRatio(devicePixelRatio);renderer.setSize(innerWidth,innerHeight);
   renderer.xr.enabled=true;document.body.appendChild(renderer.domElement);
   hide();showHUD();
-  const sess=await navigator.xr.requestSession('immersive-vr',{requiredFeatures:['local-floor'],optionalFeatures:['bounded-floor']});
+  document.getElementById('hud').querySelector('.hud-hint').textContent=
+    'Right trigger: identify star · Left grip: toggle menu · Right stick: rotate view';
+
+  // ── Player rig (allows thumbstick rotation) ──────────────────────────────
+  const player=new THREE.Group();
+  scene.add(player);
+  player.add(camera);
+
+  // ── Controller setup ─────────────────────────────────────────────────────
+  function makeRayLine(){
+    const pts=[new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,-1)];
+    const g=new THREE.BufferGeometry().setFromPoints(pts);
+    return new THREE.Line(g,new THREE.LineBasicMaterial({color:0x9977ff,transparent:true,opacity:.55}));
+  }
+  const ctrl=[0,1].map(i=>{
+    const c=renderer.xr.getController(i);
+    c.add(makeRayLine());
+    player.add(c);
+    player.add(renderer.xr.getControllerGrip(i));
+    return c;
+  });
+
+  // ── Trigger → identify star via controller ray ───────────────────────────
+  function pickFromCtrl(c){
+    if(!F.identify||!starPts)return;
+    const tmp=new THREE.Matrix4();
+    tmp.identity().extractRotation(c.matrixWorld);
+    const ray=new THREE.Raycaster();
+    ray.ray.origin.setFromMatrixPosition(c.matrixWorld);
+    ray.ray.direction.set(0,0,-1).applyMatrix4(tmp);
+    ray.params={Points:{threshold:10}};
+    const hits=ray.intersectObject(starPts);
+    if(hits.length>0){const s=starData[hits[0].index];if(s){showCard(s);return;}}
+    hideCard();
+  }
+  ctrl[0].addEventListener('selectstart',()=>pickFromCtrl(ctrl[0]));
+  ctrl[1].addEventListener('selectstart',()=>pickFromCtrl(ctrl[1]));
+
+  // ── Left grip → toggle feature panel ────────────────────────────────────
+  ctrl[0].addEventListener('squeezestart',()=>{
+    panelOpen=!panelOpen;
+    document.getElementById('feature-panel').style.display=panelOpen?'flex':'none';
+  });
+
+  // ── Session & animation loop with thumbstick look ─────────────────────────
+  const sess=await navigator.xr.requestSession('immersive-vr',{
+    requiredFeatures:['local-floor'],
+    optionalFeatures:['bounded-floor']
+  });
   renderer.xr.setSession(sess);
-  renderer.setAnimationLoop(()=>renderer.render(scene,camera));
+
+  let vrYaw=0;
+  const DEAD=0.18,TURN_SPD=0.018;
+
+  renderer.setAnimationLoop(()=>{
+    // Poll right thumbstick (axes[2]) for horizontal look rotation
+    if(sess.inputSources){
+      for(const src of sess.inputSources){
+        if(!src.gamepad||src.handedness!=='right')continue;
+        const ax=src.gamepad.axes;
+        if(ax.length>=3){
+          const hx=ax[2]; // right stick horizontal
+          if(Math.abs(hx)>DEAD) vrYaw-=hx*TURN_SPD;
+        }
+      }
+    }
+    player.rotation.y=vrYaw;
+    renderer.render(scene,camera);
+  });
   applyF();
 }
 
