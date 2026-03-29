@@ -187,7 +187,7 @@ const CON_NAME={And:'Andromeda',Ant:'Antlia',Aps:'Apus',Aqr:'Aquarius',Aql:'Aqui
 
 // ── HYG Database loader ────────────────────────────────────────────────────
 // Hipparcos/Yale/Gliese merged catalog — 119,614 real stars
-const HYG_URL='https://raw.githubusercontent.com/astronexus/HYG-Database/master/hyg/v3/hyg_v3.csv';
+const HYG_URL='https://cdn.jsdelivr.net/gh/astronexus/HYG-Database@master/hyg/v3/hyg_v3.csv';
 // HYG v3 column indices:
 //  6=proper  7=ra(hours!)  8=dec  13=mag  16=ci(B-V)  29=con
 let hygCatalog=null; // filled by fetchHYG()
@@ -224,8 +224,8 @@ async function fetchHYG(){
     return true;
   }catch(e){
     console.error('HYG fetch failed:',e);
-    setProgress(100,'Catalog unavailable — check network');
-    document.getElementById('load-label').style.color='#cc4444';
+    setProgress(100,'Catalog load failed — see console for details');
+    document.getElementById('load-label').style.color='#cc6644';
     return false;
   }
 }
