@@ -61,7 +61,12 @@ input:checked+.slider:before{transform:translateX(16px)}
 #load-bar-wrap{width:100%;max-width:340px;display:none;flex-direction:column;gap:8px;align-items:center}
 #load-bar-bg{width:100%;height:4px;background:rgba(255,255,255,.08);border-radius:4px;overflow:hidden}
 #load-bar{height:100%;width:0%;background:linear-gradient(90deg,#4433bb,#7766ff);border-radius:4px;transition:width .25s ease}
-#load-label{font-size:.78rem;color:#5555aa}
+#load-label{font-size:.78rem;color:#5555aa;text-align:center}
+#drop-zone{display:none;flex-direction:column;align-items:center;gap:8px;border:1px dashed rgba(120,100,255,.4);border-radius:10px;padding:14px 20px;width:100%;cursor:pointer;transition:border-color .2s}
+#drop-zone:hover,#drop-zone.drag-over{border-color:rgba(160,140,255,.8);background:rgba(80,60,180,.1)}
+#drop-zone .dz-title{font-size:.85rem;color:#9988cc}
+#drop-zone .dz-sub{font-size:.72rem;color:#554466}
+#file-input{display:none}
 </style>
 </head>
 <body>
@@ -82,6 +87,11 @@ input:checked+.slider:before{transform:translateX(16px)}
       <div id="load-bar-bg"><div id="load-bar"></div></div>
       <div id="load-label">Loading star catalog…</div>
     </div>
+    <div id="drop-zone">
+      <div class="dz-title">Drop hygdata_v41.csv here or click to browse</div>
+      <div class="dz-sub">Download from: github.com/astronexus/HYG-Database → hyg/CURRENT/hygdata_v41.csv</div>
+      <input type="file" id="file-input" accept=".csv">
+    </div>
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;width:100%">
     <button id="enter-ar" disabled>Enter AR (Passthrough)</button>
     <button id="enter-vr" disabled>Enter VR</button>
@@ -100,11 +110,6 @@ input:checked+.slider:before{transform:translateX(16px)}
     <div><div class="feat-label">Stars</div><div class="feat-sub">Full catalog with color &amp; magnitude</div></div>
     <label class="toggle"><input type="checkbox" id="t-stars" checked><span class="slider"></span></label>
   </div>
-  <div class="feat-row">
-    <div><div class="feat-label">Milky Way</div><div class="feat-sub">Galactic band particle cloud</div></div>
-    <label class="toggle"><input type="checkbox" id="t-milky" checked><span class="slider"></span></label>
-  </div>
-  <div class="feat-sep"></div>
   <div class="feat-row">
     <div><div class="feat-label">Constellation lines</div><div class="feat-sub">IAU boundary lines</div></div>
     <label class="toggle"><input type="checkbox" id="t-const" checked><span class="slider"></span></label>
@@ -186,49 +191,92 @@ function bvColor(bv){
 const CON_NAME={And:'Andromeda',Ant:'Antlia',Aps:'Apus',Aqr:'Aquarius',Aql:'Aquila',Ara:'Ara',Ari:'Aries',Aur:'Auriga',Boo:'Boötes',Cae:'Caelum',Cam:'Camelopardalis',Cnc:'Cancer',CVn:'Canes Venatici',CMa:'Canis Major',CMi:'Canis Minor',Cap:'Capricornus',Car:'Carina',Cas:'Cassiopeia',Cen:'Centaurus',Cep:'Cepheus',Cet:'Cetus',Cha:'Chamaeleon',Cir:'Circinus',Col:'Columba',Com:'Coma Berenices',CrA:'Corona Australis',CrB:'Corona Borealis',Crv:'Corvus',Crt:'Crater',Cru:'Crux',Cyg:'Cygnus',Del:'Delphinus',Dor:'Dorado',Dra:'Draco',Equ:'Equuleus',Eri:'Eridanus',For:'Fornax',Gem:'Gemini',Gru:'Grus',Her:'Hercules',Hor:'Horologium',Hya:'Hydra',Hyi:'Hydrus',Ind:'Indus',Lac:'Lacerta',Leo:'Leo',LMi:'Leo Minor',Lep:'Lepus',Lib:'Libra',Lup:'Lupus',Lyn:'Lynx',Lyr:'Lyra',Men:'Mensa',Mic:'Microscopium',Mon:'Monoceros',Mus:'Musca',Nor:'Norma',Oct:'Octans',Oph:'Ophiuchus',Ori:'Orion',Pav:'Pavo',Peg:'Pegasus',Per:'Perseus',Phe:'Phoenix',Pic:'Pictor',Psc:'Pisces',PsA:'Piscis Austrinus',Pup:'Puppis',Pyx:'Pyxis',Ret:'Reticulum',Sge:'Sagitta',Sgr:'Sagittarius',Sco:'Scorpius',Scl:'Sculptor',Sct:'Scutum',Ser:'Serpens',Sex:'Sextans',Tau:'Taurus',Tel:'Telescopium',Tri:'Triangulum',TrA:'Triangulum Australe',Tuc:'Tucana',UMa:'Ursa Major',UMi:'Ursa Minor',Vel:'Vela',Vir:'Virgo',Vol:'Volans',Vul:'Vulpecula'};
 
 // ── HYG Database loader ────────────────────────────────────────────────────
-// Hipparcos/Yale/Gliese merged catalog — 119,614 real stars
-const HYG_URL='https://cdn.jsdelivr.net/gh/astronexus/HYG-Database@master/hyg/v3/hyg_v3.csv';
-// HYG v3 column indices:
-//  6=proper  7=ra(hours!)  8=dec  13=mag  16=ci(B-V)  29=con
-let hygCatalog=null; // filled by fetchHYG()
+// HYG v3 column indices: 6=proper 7=ra(hours) 8=dec 13=mag 16=ci(B-V) 29=con
+let hygCatalog=null;
 
-function setProgress(pct,label){
+// hygdata_v41.csv — plain CSV from hyg/CURRENT/ folder, put it next to the HTML
+const HYG_URLS=[
+  './hygdata_v41.csv',
+  './hygdata_v40.csv.gz',
+];
+
+function setProgress(pct,label,color){
   document.getElementById('load-bar').style.width=pct+'%';
-  document.getElementById('load-label').textContent=label;
+  const lbl=document.getElementById('load-label');
+  lbl.textContent=label;
+  lbl.style.color=color||'#5555aa';
+}
+
+async function tryFetch(url){
+  const resp=await fetch(url);
+  if(!resp.ok)throw new Error('HTTP '+resp.status);
+  let stream=resp.body;
+  if(url.endsWith('.gz'))stream=resp.body.pipeThrough(new DecompressionStream('gzip'));
+  const reader=stream.getReader();
+  let received=0,chunks=[];
+  while(true){
+    const{done,value}=await reader.read();
+    if(done)break;
+    chunks.push(value);received+=value.length;
+    setProgress(10+Math.min(55,Math.round(received/100000)),
+      'Loading… '+Math.round(received/1024)+'KB');
+  }
+  return new TextDecoder().decode(await new Blob(chunks).arrayBuffer());
 }
 
 async function fetchHYG(){
   document.getElementById('load-bar-wrap').style.display='flex';
-  setProgress(5,'Connecting to star catalog…');
-  try{
-    const resp=await fetch(HYG_URL);
-    if(!resp.ok)throw new Error('HTTP '+resp.status);
-    const total=parseInt(resp.headers.get('content-length')||'0');
-    // Stream with progress
-    const reader=resp.body.getReader();
-    let received=0,chunks=[];
-    while(true){
-      const{done,value}=await reader.read();
-      if(done)break;
-      chunks.push(value);received+=value.length;
-      if(total)setProgress(5+Math.round(received/total*60),'Downloading catalog… '+Math.round(received/1024)+'KB');
+  setProgress(5,'Loading star catalog…');
+  for(let i=0;i<HYG_URLS.length;i++){
+    try{
+      setProgress(5,'Fetching '+HYG_URLS[i]+'…');
+      const text=await tryFetch(HYG_URLS[i]);
+      setProgress(68,'Parsing star data…');
+      hygCatalog=parseHYG(text);
+      setProgress(100,'Loaded '+hygCatalog.length.toLocaleString()+' stars','#44aa66');
+      document.getElementById('star-count').textContent=hygCatalog.length.toLocaleString();
+      setTimeout(()=>document.getElementById('load-bar-wrap').style.display='none',1500);
+      return true;
+    }catch(e){
+      console.warn(HYG_URLS[i]+' failed:',e.message);
     }
-    setProgress(65,'Parsing '+received+' bytes…');
-    // Decode
-    const text=new TextDecoder().decode(await new Blob(chunks).arrayBuffer());
-    setProgress(70,'Parsing star data…');
-    hygCatalog=parseHYG(text);
-    setProgress(90,'Catalog ready — '+hygCatalog.length.toLocaleString()+' stars');
-    document.getElementById('star-count').textContent=hygCatalog.length.toLocaleString();
-    setTimeout(()=>document.getElementById('load-bar-wrap').style.display='none',1200);
-    return true;
-  }catch(e){
-    console.error('HYG fetch failed:',e);
-    setProgress(100,'Catalog load failed — see console for details');
-    document.getElementById('load-label').style.color='#cc6644';
-    return false;
   }
+  // File not found — show drop zone
+  setProgress(100,'File not found — drop it below','#cc7744');
+  document.getElementById('drop-zone').style.display='flex';
+  return false;
 }
+
+// ── File drop / browse handler ─────────────────────────────────────────────
+function loadCSVText(text){
+  setProgress(60,'Parsing star data…','#5555aa');
+  document.getElementById('drop-zone').style.display='none';
+  hygCatalog=parseHYG(text);
+  setProgress(100,'Loaded '+hygCatalog.length.toLocaleString()+' stars','#44aa66');
+  document.getElementById('star-count').textContent=hygCatalog.length.toLocaleString();
+  setTimeout(()=>document.getElementById('load-bar-wrap').style.display='none',1200);
+  // Enable buttons now that catalog is ready
+  checkXR();
+}
+
+const dz=document.getElementById('drop-zone');
+const fi=document.getElementById('file-input');
+dz.addEventListener('click',()=>fi.click());
+fi.addEventListener('change',e=>{
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=ev=>loadCSVText(ev.target.result);
+  r.readAsText(f);
+});
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag-over');});
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
+dz.addEventListener('drop',e=>{
+  e.preventDefault();dz.classList.remove('drag-over');
+  const f=e.dataTransfer.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=ev=>loadCSVText(ev.target.result);
+  r.readAsText(f);
+});
 
 function parseHYG(text){
   const lines=text.split('\n');
@@ -289,55 +337,6 @@ function buildStars(){
   skyGroup.add(starPts);
 }
 
-function buildMW(){
-  // Milky Way: 180k particles along galactic plane, converted to equatorial coords
-  // Colors: silvery blue-white (aggregate of billions of stars), warm bulge center
-  const N=180000;
-  const pos=[],col=[];
-  const NGPra=192.85948*Math.PI/180,NGPdec=27.12825*Math.PI/180,lon0=122.93192*Math.PI/180;
-  for(let i=0;i<N;i++){
-    const l=Math.random()*360;
-    const ls=((l+180)%360-180); // signed longitude, 0=galactic center
-    // Latitude: narrow disk gaussian, wider at bulge
-    const spread=Math.abs(ls)<30?16:8;
-    const b=(Math.random()+Math.random()-1)*spread; // sum-of-2 gaussian
-    // Galactic → equatorial conversion
-    const lR=l*Math.PI/180,bR=b*Math.PI/180;
-    const sinD=Math.sin(bR)*Math.sin(NGPdec)+Math.cos(bR)*Math.cos(NGPdec)*Math.cos(lon0-lR);
-    const dec=Math.asin(Math.max(-1,Math.min(1,sinD)))*180/Math.PI;
-    const y2=Math.cos(bR)*Math.sin(lon0-lR);
-    const x2=Math.sin(bR)*Math.cos(NGPdec)-Math.cos(bR)*Math.sin(NGPdec)*Math.cos(lon0-lR);
-    const ra=((NGPra+Math.atan2(y2,x2))*180/Math.PI%360+360)%360;
-    const{alt,az}=toAltAz(ra,dec,uLat,uLon,jdNow);
-    const v=toVec(alt,az,478+Math.random()*10);
-    pos.push(v.x,v.y,v.z);
-    // Brightness
-    const core=Math.exp(-Math.pow(ls/35,2)*0.5);
-    const bulge=Math.exp(-Math.pow(ls/18,2)*0.5)*Math.exp(-Math.pow(b/10,2)*0.5);
-    const latFade=Math.max(0.15,1-Math.abs(b)/22);
-    const br=(0.012+Math.random()*0.03+core*0.08+bulge*0.15)*latFade;
-    // Color: mostly silver/blue-white, warm core, rare pink HII regions
-    const rnd=Math.random();
-    let cr,cg,cb;
-    if(rnd<0.015&&Math.abs(b)<10&&Math.abs(ls)>25){ // H-alpha pink regions
-      cr=br*1.1;cg=br*0.28;cb=br*0.52;
-    } else if(bulge>0.4&&rnd<bulge*0.45){ // warm galactic bulge
-      cr=br*1.0;cg=br*0.82;cb=br*0.60;
-    } else { // dominant: cool blue-white aggregate
-      const blue=Math.random()*0.12;
-      cr=br*0.86;cg=br*0.90;cb=br*(1.0+blue*0.1);
-    }
-    col.push(cr,cg,cb);
-  }
-  const geo=new THREE.BufferGeometry();
-  geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
-  geo.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
-  mwPts=new THREE.Points(geo,new THREE.PointsMaterial({
-    size:2.0,vertexColors:true,sizeAttenuation:true,
-    blending:THREE.AdditiveBlending,depthTest:false,transparent:true,opacity:0.82
-  }));
-  skyGroup.add(mwPts);
-}
 
 // ── Constellations ─────────────────────────────────────────────────────────
 const CONS={
@@ -367,13 +366,13 @@ const CONS={
 let uLat=38.9897,uLon=-76.9378;
 let jdNow=jd(new Date());
 let scene,camera,renderer,skyGroup;
-let starPts,mwPts,cLines=[],cLabels=[];
+let starPts,cLines=[],cLabels=[];
 let starData=[];
 let desktop=false;
 let phi=Math.PI/2,theta=0,fov=70;
 let dragging=false,moved=false,pm={x:0,y:0};
 let panelOpen=false;
-const F={stars:true,milky:true,const:true,cnames:true,identify:true};
+const F={stars:true,const:true,cnames:true,identify:true};
 
 // ── Clock ──────────────────────────────────────────────────────────────────
 function tick(){
@@ -452,7 +451,7 @@ async function checkXR(){
 
 // Kick off HYG fetch as soon as page loads — runs in background while user reads UI
 fetchHYG().then(ok=>{
-  if(!ok) setS('Star catalog unavailable — check internet connection');
+  if(!ok) setS('Catalog not loaded — use the file loader below or try a different network');
 });
 
 // ── Star texture ───────────────────────────────────────────────────────────
@@ -475,7 +474,7 @@ function build(){
   );
   skyGroup.add(bgSphere);
   camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.01,2000);
-  buildStars();buildMW();buildCons();
+  buildStars();buildCons();
 }
 
 // Old procedural buildStars/buildMW removed — replaced by HYG loader above
@@ -519,11 +518,10 @@ function makeLabel(text){
 // ── Toggles ────────────────────────────────────────────────────────────────
 function applyF(){
   if(starPts)starPts.visible=F.stars;
-  if(mwPts)mwPts.visible=F.milky;
   cLines.forEach(l=>l.visible=F.const);
   cLabels.forEach(l=>l.visible=F.const&&F.cnames);
 }
-[['t-stars','stars'],['t-milky','milky'],['t-const','const'],['t-cnames','cnames'],['t-identify','identify']].forEach(([id,key])=>{
+[['t-stars','stars'],['t-const','const'],['t-cnames','cnames'],['t-identify','identify']].forEach(([id,key])=>{
   document.getElementById(id).addEventListener('change',e=>{
     F[key]=e.target.checked;applyF();
     if(key==='identify'&&!F.identify)hideCard();
